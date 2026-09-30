@@ -1,0 +1,19 @@
+# secrets: never commit these
+.env
+.env.*
+*keypair*.json
+id.json
+wallet*.json
+
+# build output and tools
+node_modules/
+target/
+.anchor/
+test-ledger/
+.next/
+dist/
+.vercel/
+
+# system files
+Thumbs.db
+.DS_Store
