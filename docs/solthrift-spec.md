@@ -73,9 +73,9 @@ Because a circle never has more than 10 members, the Circle account can use a
 fixed-size list of 10 member slots. That keeps account sizes and transaction
 sizes predictable.
 
-- **Circle** (PDA): parameters, status, current period, payout order, member list.
+- **Circle** (PDA): parameters, status, current period, contributions_this_period, payout order, member list.
 - **Member** (PDA per member per circle): wallet, slot number, deposit remaining,
-  has_been_paid, contributed_this_period, status (active / removed / left).
+  has_been_paid, last_contributed_period (0 = never), status (active / removed / left).
 - **Vault** (token account owned by the Circle PDA): holds deposits and
   contributions.
 
