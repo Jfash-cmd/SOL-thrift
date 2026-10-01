@@ -1,0 +1,29 @@
+{
+  "name": "web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@solana/wallet-adapter-base": "0.9.23",
+    "@solana/wallet-adapter-react": "0.15.35",
+    "@solana/wallet-adapter-react-ui": "0.9.35",
+    "@solana/web3.js": "1.95.8",
+    "lucide-react": "0.475.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "22.13.4",
+    "@types/react": "18.3.18",
+    "@types/react-dom": "18.3.5",
+    "@vitejs/plugin-react": "4.3.4",
+    "typescript": "5.7.3",
+    "vite": "5.4.14",
+    "vite-plugin-node-polyfills": "0.23.0"
+  }
+}
