@@ -1,0 +1,106 @@
+import type { FC } from 'react';
+import { useState } from 'react';
+import { useWallet } from '@solana/wallet-adapter-react';
+import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
+import { ShieldCheck, Copy, Check, ExternalLink } from 'lucide-react';
+
+interface NavbarProps {
+  activeTab: 'circle' | 'create';
+  setActiveTab: (tab: 'circle' | 'create') => void;
+}
+
+export const Navbar: FC<NavbarProps> = ({ activeTab, setActiveTab }) => {
+  const { publicKey, disconnect, connected } = useWallet();
+  const [copied, setCopied] = useState(false);
+
+  const shortenedAddress = publicKey
+    ? `${publicKey.toBase58().slice(0, 4)}...${publicKey.toBase58().slice(-4)}`
+    : null;
+
+  const handleCopy = () => {
+    if (publicKey) {
+      navigator.clipboard.writeText(publicKey.toBase58());
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  return (
+    <header className="site-header">
+      <div className="header-container">
+        {/* Brand / Logo */}
+        <div className="brand-group" onClick={() => setActiveTab('circle')} style={{ cursor: 'pointer' }}>
+          <div className="brand-icon">
+            <ShieldCheck size={22} className="brand-icon-svg" />
+          </div>
+          <div className="brand-text">
+            <span className="brand-name">Solthrift</span>
+            <span className="badge-devnet">Devnet</span>
+          </div>
+        </div>
+
+        {/* Navigation Tabs */}
+        <nav className="nav-links">
+          <button
+            type="button"
+            className={`nav-btn ${activeTab === 'circle' ? 'active' : ''}`}
+            onClick={() => setActiveTab('circle')}
+            id="nav-tab-circle"
+          >
+            Circle Dashboard
+          </button>
+          <button
+            type="button"
+            className={`nav-btn ${activeTab === 'create' ? 'active' : ''}`}
+            onClick={() => setActiveTab('create')}
+            id="nav-tab-create"
+          >
+            Create Circle
+          </button>
+        </nav>
+
+        {/* Wallet Connection */}
+        <div className="wallet-header-area">
+          {connected && publicKey ? (
+            <div className="connected-wallet-box">
+              <div className="wallet-chip" title={publicKey.toBase58()}>
+                <span className="status-dot green"></span>
+                <span className="wallet-address" id="shortened-wallet-address">{shortenedAddress}</span>
+                <button
+                  type="button"
+                  className="icon-action-btn"
+                  onClick={handleCopy}
+                  title="Copy full public key"
+                  aria-label="Copy public key"
+                >
+                  {copied ? <Check size={14} className="text-green" /> : <Copy size={14} />}
+                </button>
+                <a
+                  href={`https://explorer.solana.com/address/${publicKey.toBase58()}?cluster=devnet`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="icon-action-btn"
+                  title="View on Solana Explorer"
+                >
+                  <ExternalLink size={14} />
+                </a>
+              </div>
+              <button
+                type="button"
+                className="disconnect-btn"
+                onClick={() => disconnect()}
+                title="Disconnect wallet"
+              >
+                Disconnect
+              </button>
+            </div>
+          ) : (
+            <div className="wallet-adapter-wrapper">
+              <WalletMultiButton className="custom-wallet-btn" />
+            </div>
+          )}
+        </div>
+      </div>
+    </header>
+  );
+};
