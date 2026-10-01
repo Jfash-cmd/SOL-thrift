@@ -73,16 +73,17 @@ Because a circle never has more than 10 members, the Circle account can use a
 fixed-size list of 10 member slots. That keeps account sizes and transaction
 sizes predictable.
 
-- **Circle** (PDA): parameters, status, current period, contributions_this_period, payout order, member list.
+- **Circle** (PDA): parameters, status, current period, contributions_this_period, order_len, expected_contributors, reserve, owing_count, payout order, member list.
 - **Member** (PDA per member per circle): wallet, slot number, deposit remaining,
   has_been_paid, last_contributed_period (0 = never), status (active / removed / left).
-- **Vault** (token account owned by the Circle PDA): holds deposits and
-  contributions.
+- **Vault** (token account owned by the Circle PDA): holds deposits,
+  contributions, and reserve.
 
 ## 4. States
 
 `Open` (members joining) -> `Active` (periods running) -> `Filling` (2-day window
 after a round ends) -> `Active` again for the next round.
+If active members drop below 3 (`min_members`), the circle transitions to `Closing`.
 A round runs until every active member has received their payout. It then ends
 and resets automatically: the same members and payout order carry over, and
 the next round starts once the filling window ends. Deposits stay locked through a reset. A member who
@@ -94,13 +95,30 @@ flagged `leaving` takes their deposit out at the reset, with no penalty.
 2. **join_circle**: member pays their deposit into the vault and takes the next
    slot. Payout order = join order **[DECIDE]** (simple and verifiable).
    When N members have joined, the circle becomes Active automatically.
+   Sets `order_len = members_target` and `expected_contributors = active_member_count`.
 3. **contribute**: pays c into the vault for the current period. Signed by the
-   member through their browser wallet.
-4. **payout**: sends the pot to that period's recipient. Callable by anyone once
-   all active members have contributed, or once the deadline plus grace has
-   passed.
-5. **remove_defaulter**: callable by anyone after deadline plus grace against a
-   member who has not contributed. See section 6.
+   member through their browser wallet before deadline plus grace. Sets
+   `last_contributed_period = current_period` and increments `contributions_this_period`.
+4. **payout**: sends the pot to that period's recipient (slot = `payout_order[current_period - 1]`).
+   Callable by anyone, but allowed only when `contributions_this_period == expected_contributors`.
+   Pot = `contributions_this_period * contribution` (real and covered contributions)
+   + draw, where `draw = min(reserve, contribution * owing_count)`. The draw is
+   subtracted from reserve. Transferred from vault signed by Circle PDA seeds.
+   Sets `has_been_paid = true`. After payout: if `current_period == order_len`, status
+   transitions to `Filling`; otherwise `current_period += 1`, `contributions_this_period = 0`,
+   `period_start_time = now`, and `expected_contributors = active_member_count`.
+5. **remove_defaulter**: callable by anyone after deadline plus grace against an
+   active member whose `last_contributed_period != current_period`.
+   1. Marks member `removed` and decrements `active_member_count`.
+   2. Covers this period: `contributions_this_period += 1` and subtracts `contribution`
+      from the member's `deposit_remaining`.
+   3. If member has not been paid: deletes their entry from `payout_order` (`order_len -= 1`)
+      by shifting later entries left, and refunds any remaining `deposit_remaining`.
+   4. If member has been paid: moves `min(deposit_remaining, (order_len - current_period) * contribution)`
+      into `reserve`, increments `owing_count += 1`, and refunds any remaining deposit.
+   5. If `active_member_count < min_members`, sets status to `Closing`.
+   6. If removal leaves no unpaid entries (`current_period > order_len`), sets status to `Filling`.
+   7. Emits `member_removed` event with amounts covered, reserved, and refunded.
 6. **flag_leaving**: a member marks that they want out. It takes effect at the
    next reset, with no penalty. Their unused deposit is sent to their wallet then.
 7. **reset_round**: callable by anyone once the last payout is done. Clears the
@@ -138,36 +156,34 @@ when the member leaves or the circle closes.
 Example, 4 members, c = 10, 50%: slot 1 locks 15, slots 2 to 4 lock 10 each.
 
 **When the deposit is not enough:** if a removed member owes more than their deposit
-covers, the shortfall reduces the pots of the members who have not yet been paid,
-starting with the current period's recipient **[DECIDE]**.
+covers, the shortfall reduces the pots of the members who have not yet been paid.
 Members already paid are not affected. The maximum shortfall is
 `(1 - deposit_pct) * (N - k) * c` for a member in slot k.
 
 When a member misses the contribution deadline plus grace:
 
-1. Their missing contribution for the current period is taken from their deposit,
-   as far as the deposit covers it, so the current recipient gets the full pot
-   whenever possible.
-2. They are marked `removed`. Their slot is skipped if they have not yet been paid.
-3. Any deposit left over is sent to their connected wallet.
-4. From the next period on, the pot is one contribution smaller and the
-   remaining members continue.
-
-Two cases follow:
-
-- **Removed before being paid:** contributions from earlier periods were already
-  paid out to earlier recipients and cannot be refunded. They forfeit their
-  place in line. Only the unused deposit comes back. This is harsh but simple.
-  A partial refund would make quitting cheaper **[DECIDE]**.
-- **Removed after being paid:** they already received a pot. Their deposit covers
-  part of what they still owe, and the shortfall is absorbed as described above.
-  Anything left of the deposit after that goes back to their wallet.
+1. Their missing contribution for the current period is taken from their deposit
+   (`contributions_this_period += 1`, `deposit_remaining -= c`), so the current
+   recipient gets the full pot whenever possible.
+2. They are marked `removed` and `active_member_count` decrements.
+3. **If removed before being paid:** their slot is deleted from `payout_order`
+   by shifting later entries left (`order_len -= 1`). Any remaining deposit is
+   refunded to their connected wallet.
+4. **If removed after being paid:** they already received a pot. Remaining periods
+   owed = `order_len - current_period`. Funds equal to
+   `min(deposit_remaining, remaining_periods * c)` are moved into the circle's
+   `reserve`, `owing_count` is incremented, and any remainder of the deposit is
+   refunded to their connected wallet.
+5. In each subsequent payout, `draw = min(reserve, c * owing_count)` is taken
+   from `reserve` and added to the pot. If the reserve runs out, unpaid members
+   absorb the shortfall through smaller pots.
+6. If active members fall below `min_members` (3), the circle transitions to
+   `Closing`.
+7. If a removal leaves no unpaid entries (`current_period > order_len`), the circle
+   transitions to `Filling`.
 
 No separate percentage penalty is needed, because forfeiting contributions or
 deposit is already the cost of quitting.
-
-If active members fall below `min_members`, the round ends: remaining deposits
-are returned and no further payouts happen.
 
 ## 7. Invariants (test these)
 
@@ -195,11 +211,12 @@ are returned and no further payouts happen.
 - Connect and sign through a browser Solana wallet (wallet adapter).
 - Show members by a shortened wallet address, with an optional display name.
 - **Trigger buttons** on the circle page, because the program cannot run on a timer.
-  Any member can press them; the program checks the clock and refuses if it is too
-  early. They show a countdown until they become active:
-  - "Pay out to [next member]" (all paid, or deadline plus grace passed)
-  - "Remove late member" (deadline plus grace passed)
-  - "Start next round" (last payout done and the filling window ended)
+  Any member can press them; the program checks conditions and refuses if invalid:
+  - "Pay out to [next member]" (active only when `contributions_this_period == expected_contributors`.
+    There is no deadline path inside payout; late members must first be removed via `remove_defaulter`,
+    which covers their contribution from their deposit and completes the contribution count).
+  - "Remove late member" (active after deadline plus grace has passed against an active member who has not contributed).
+  - "Start next round" (active when round is in `Filling` state and the filling window has ended).
   A free scheduled job that presses them automatically is optional [DECIDE].
 - Join a circle through an invite link or QR code.
 - A public circle page anyone can open: who has paid, who is next, who was removed,
