@@ -37,6 +37,34 @@ function assertEqual(actual: any, expected: any, description: string) {
 }
 
 /**
+ * Sleep helper that loops until Date.now() >= end, yielding CPU via a cheap
+ * RPC call (pg.connection.getSlot()) so it does not spin the CPU.
+ * Avoids setTimeout which is not defined in Solana Playground.
+ */
+async function sleepMs(ms: number): Promise<void> {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    await pg.connection.getSlot();
+  }
+}
+
+/**
+ * Helper to wait until on-chain cluster time (block time) passes unixSeconds.
+ * Loops, fetches slot with 'confirmed' commitment, then block time;
+ * if t is not null and t > unixSeconds, returns; otherwise calls sleepMs(1000).
+ */
+async function waitUntilChainTime(unixSeconds: number): Promise<void> {
+  while (true) {
+    const slot = await pg.connection.getSlot("confirmed");
+    const t = await pg.connection.getBlockTime(slot);
+    if (t !== null && t !== undefined && t > unixSeconds) {
+      return;
+    }
+    await sleepMs(1000);
+  }
+}
+
+/**
  * Helper to fetch an account with up to 8 retries, 1 second apart.
  * Used for every account fetch to prevent timing and RPC indexing race conditions.
  */
@@ -53,7 +81,7 @@ async function fetchWithRetry<T>(
     } catch (err: any) {
       lastError = err;
       if (attempt < maxRetries) {
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        await sleepMs(delayMs);
       }
     }
   }
@@ -435,8 +463,17 @@ async function runClosingTest() {
     .rpc();
   await waitForConfirmation(cont3P2Sig, "contribute Period 2 (Member 3)");
 
-  console.log("Member 1 does not contribute. Waiting 22 seconds for Period 2 deadline to pass...");
-  await new Promise((resolve) => setTimeout(resolve, 22000));
+  console.log("Member 1 does not contribute. Waiting for Period 2 deadline to pass...");
+  const circleBeforeRemove = await fetchWithRetry(
+    () => pg.program.account.circle.fetch(circlePda, "confirmed"),
+    "Circle account before removeDefaulter"
+  );
+  const deadline =
+    circleBeforeRemove.periodStartTime.toNumber() +
+    circleBeforeRemove.periodDuration.toNumber() +
+    circleBeforeRemove.graceDuration.toNumber();
+  console.log(`Period 2 deadline: ${deadline}`);
+  await waitUntilChainTime(deadline + 1);
 
   // Call removeDefaulter on Member 1 (retry up to 6 times with 5s delay on GracePeriodNotExpired)
   let removeConfirmed = false;
@@ -462,7 +499,7 @@ async function runClosingTest() {
       const errStr = err?.toString() || "";
       if (errStr.includes("GracePeriodNotExpired") && attempt < 6) {
         console.log(`Grace period not yet expired on cluster. Waiting 5s before retrying (attempt ${attempt}/6)...`);
-        await new Promise((resolve) => setTimeout(resolve, 5000));
+        await sleepMs(5000);
       } else {
         throw err;
       }

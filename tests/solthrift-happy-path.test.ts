@@ -37,6 +37,34 @@ function assertEqual(actual: any, expected: any, description: string) {
 }
 
 /**
+ * Sleep helper that loops until Date.now() >= end, yielding CPU via a cheap
+ * RPC call (pg.connection.getSlot()) so it does not spin the CPU.
+ * Avoids setTimeout which is not defined in Solana Playground.
+ */
+async function sleepMs(ms: number): Promise<void> {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    await pg.connection.getSlot();
+  }
+}
+
+/**
+ * Helper to wait until on-chain cluster time (block time) passes unixSeconds.
+ * Loops, fetches slot with 'confirmed' commitment, then block time;
+ * if t is not null and t > unixSeconds, returns; otherwise calls sleepMs(1000).
+ */
+async function waitUntilChainTime(unixSeconds: number): Promise<void> {
+  while (true) {
+    const slot = await pg.connection.getSlot("confirmed");
+    const t = await pg.connection.getBlockTime(slot);
+    if (t !== null && t !== undefined && t > unixSeconds) {
+      return;
+    }
+    await sleepMs(1000);
+  }
+}
+
+/**
  * Helper to fetch an account with up to 8 retries, 1 second apart.
  * Used for every account fetch to prevent timing and RPC indexing race conditions.
  */
@@ -53,7 +81,7 @@ async function fetchWithRetry<T>(
     } catch (err: any) {
       lastError = err;
       if (attempt < maxRetries) {
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        await sleepMs(delayMs);
       }
     }
   }
