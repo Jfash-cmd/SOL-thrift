@@ -24,6 +24,7 @@ declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS");
 /// + 1 (expected_contributors)
 /// + 8 (reserve)
 /// + 1 (owing_count)
+/// + 1 (pending_owing)
 /// + 8 (contribution)
 /// + 1 (deposit_pct)
 /// + 8 (period_duration)
@@ -34,7 +35,7 @@ declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS");
 /// + 8 (period_start_time)
 /// + 320 (members: [Pubkey; 10])
 /// + 10 (payout_order: [u8; 10])
-/// = 503 bytes
+/// = 504 bytes
 pub const CIRCLE_SPACE: usize = 8
     + 32
     + 8
@@ -51,6 +52,7 @@ pub const CIRCLE_SPACE: usize = 8
     + 1
     + 8
     + 1
+    + 1 // pending_owing: u8
     + 8
     + 1
     + 8
@@ -155,6 +157,7 @@ pub mod solthrift {
         circle.expected_contributors = 0;
         circle.reserve = 0;
         circle.owing_count = 0;
+        circle.pending_owing = 0;
         circle.contribution = contribution;
         circle.deposit_pct = deposit_pct;
         circle.period_duration = period_duration;
@@ -290,6 +293,7 @@ pub mod solthrift {
             circle.expected_contributors = circle.active_member_count;
             circle.reserve = 0;
             circle.owing_count = 0;
+            circle.pending_owing = 0;
             round_activated = true;
         }
 
@@ -492,6 +496,14 @@ pub mod solthrift {
         let now = Clock::get()?.unix_timestamp;
         let paid_period = circle.current_period;
 
+        // Advance owing_count with pending_owing so that members removed during this period
+        // start their reserve draws with the NEXT period, preventing double charging.
+        circle.owing_count = circle
+            .owing_count
+            .checked_add(circle.pending_owing)
+            .ok_or(SolthriftError::MathOverflow)?;
+        circle.pending_owing = 0;
+
         // If current_period == order_len, set status to Filling;
         // otherwise current_period += 1, contributions_this_period = 0,
         // period_start_time = now, expected_contributors = active_member_count.
@@ -558,6 +570,87 @@ pub mod solthrift {
             SolthriftError::GracePeriodNotExpired
         );
 
+        // Check if member is NOT yet paid and is the only remaining unpaid entry:
+        // (order_len == 1 or current_period == order_len, meaning no subsequent unpaid slots remain in this round)
+        let is_only_unpaid = !member.has_been_paid
+            && (circle.order_len == 1 || circle.current_period == circle.order_len);
+
+        if is_only_unpaid {
+            // 1. Mark member Removed and decrement active_member_count
+            member.status = MemberStatus::Removed;
+            circle.active_member_count = circle
+                .active_member_count
+                .checked_sub(1)
+                .ok_or(SolthriftError::MathOverflow)?;
+
+            // 2. Delete their entry from payout_order by shifting later entries left (or clearing last entry)
+            let mut found_idx: Option<usize> = None;
+            for i in 0..(circle.order_len as usize) {
+                if circle.payout_order[i] == member.slot {
+                    found_idx = Some(i);
+                    break;
+                }
+            }
+            let idx = found_idx.ok_or(SolthriftError::SlotNotFoundInPayoutOrder)?;
+
+            for i in idx..((circle.order_len as usize) - 1) {
+                circle.payout_order[i] = circle.payout_order[i + 1];
+            }
+            circle.payout_order[(circle.order_len as usize) - 1] = 0;
+            circle.order_len = circle
+                .order_len
+                .checked_sub(1)
+                .ok_or(SolthriftError::MathOverflow)?;
+
+            // 3. Do not cover this period and do not move any deposit.
+            // Refund full deposit_remaining to member's wallet token account.
+            let refund_amount = member.deposit_remaining;
+            member.deposit_remaining = 0;
+
+            if refund_amount > 0 {
+                let creator_key = circle.creator;
+                let circle_id_bytes = circle.circle_id.to_le_bytes();
+                let bump = circle.bump;
+                let signer_seeds: &[&[&[u8]]] = &[&[
+                    b"circle",
+                    creator_key.as_ref(),
+                    circle_id_bytes.as_ref(),
+                    &[bump],
+                ]];
+
+                let cpi_accounts = Transfer {
+                    from: ctx.accounts.vault.to_account_info(),
+                    to: ctx.accounts.member_token_account.to_account_info(),
+                    authority: circle.to_account_info(),
+                };
+                let cpi_program = ctx.accounts.token_program.to_account_info();
+                token::transfer(
+                    CpiContext::new_with_signer(cpi_program, cpi_accounts, signer_seeds),
+                    refund_amount,
+                )?;
+            }
+
+            // 4. Set status to Filling (leave this period's contributions in the vault for a refund instruction in a later chunk)
+            circle.status = CircleStatus::Filling;
+            circle.period_start_time = now;
+
+            // 5. Emit Section 8 member_removed event
+            emit!(MemberRemoved {
+                circle: circle.key(),
+                member: member.key(),
+                wallet: member.wallet,
+                slot: member.slot,
+                covered_amount: 0,
+                reserved_amount: 0,
+                refunded_amount: refund_amount,
+                timestamp: now,
+            });
+
+            return Ok(());
+        }
+
+        // Standard removal path (when member is paid OR is unpaid but other unpaid members remain)
+
         // 1. Mark member Removed and decrement active_member_count
         member.status = MemberStatus::Removed;
         circle.active_member_count = circle
@@ -608,8 +701,10 @@ pub mod solthrift {
         } else {
             // 4. If the member HAS been paid:
             // remaining = order_len - current_period
-            // Move min(deposit_remaining, remaining * contribution) into reserve, owing_count += 1,
-            // and refund anything left to their wallet's token account.
+            // Move min(deposit_remaining, remaining * contribution) into reserve.
+            // Increment pending_owing += 1 so reserve draws begin with the NEXT period in payout,
+            // preventing double-charging this period (where their contribution was already covered from deposit).
+            // Refund anything left to their wallet's token account.
             let remaining_periods = (circle.order_len as u64)
                 .checked_sub(circle.current_period as u64)
                 .ok_or(SolthriftError::MathOverflow)?;
@@ -622,8 +717,8 @@ pub mod solthrift {
                 .reserve
                 .checked_add(reserved_amount)
                 .ok_or(SolthriftError::MathOverflow)?;
-            circle.owing_count = circle
-                .owing_count
+            circle.pending_owing = circle
+                .pending_owing
                 .checked_add(1)
                 .ok_or(SolthriftError::MathOverflow)?;
 
@@ -950,6 +1045,7 @@ pub struct Circle {
     pub expected_contributors: u8,
     pub reserve: u64,
     pub owing_count: u8,
+    pub pending_owing: u8,
     pub contribution: u64,
     pub deposit_pct: u8,
     pub period_duration: i64,
