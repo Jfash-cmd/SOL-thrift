@@ -597,8 +597,8 @@ async function runRemovalTest() {
   );
   assertEqual(
     m4TokenAccountAfterRemove.amount.toString(),
-    (190_000_000n).toString(),
-    "member 4's token balance is still 190 (200 minus the 10 deposit, nothing refunded)"
+    (180_000_000n).toString(),
+    "member 4's token balance is 180 (200 minus the 10 deposit and the 10 period-1 contribution; nothing refunded)"
   );
 
   // --------------------------------------------------------------------------
