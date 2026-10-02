@@ -36,6 +36,43 @@ function assertEqual(actual: any, expected: any, description: string) {
   }
 }
 
+/**
+ * Helper to fetch an account with up to 8 retries, 1 second apart.
+ * Used for every account fetch to prevent timing and RPC indexing race conditions.
+ */
+async function fetchWithRetry<T>(
+  fetchFn: () => Promise<T>,
+  accountLabel: string = "account",
+  maxRetries: number = 8,
+  delayMs: number = 1000
+): Promise<T> {
+  let lastError: any;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await fetchFn();
+    } catch (err: any) {
+      lastError = err;
+      if (attempt < maxRetries) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+  }
+  throw new Error(
+    `Failed to fetch ${accountLabel} after ${maxRetries} retries (1s apart): ${
+      lastError?.message || lastError
+    }`
+  );
+}
+
+/**
+ * Helper to wait for a transaction signature to reach 'confirmed' status
+ * before proceeding with any subsequent actions.
+ */
+async function waitForConfirmation(signature: string, label: string) {
+  await pg.connection.confirmTransaction(signature, "confirmed");
+  console.log(`${label} confirmed (tx: ${signature})`);
+}
+
 async function runHappyPathTest() {
   console.log("\n========================================================");
   console.log(" Starting Solthrift 4-Member Circle Happy Path Test");
@@ -72,6 +109,11 @@ async function runHappyPathTest() {
   const member3 = Keypair.generate();
   const member4 = Keypair.generate();
 
+  console.log(`Member 1 (creator) wallet: ${member1Wallet.toBase58()}`);
+  console.log(`Member 2 public address: ${member2.publicKey.toBase58()}`);
+  console.log(`Member 3 public address: ${member3.publicKey.toBase58()}`);
+  console.log(`Member 4 public address: ${member4.publicKey.toBase58()}`);
+
   // Fund generated members 2, 3, and 4 with 0.02 SOL each for transaction fees
   const fundTx = new Transaction().add(
     SystemProgram.transfer({
@@ -90,8 +132,10 @@ async function runHappyPathTest() {
       lamports: 0.02 * LAMPORTS_PER_SOL,
     })
   );
-  await sendAndConfirmTransaction(pg.connection, fundTx, [payerKeypair]);
-  console.log("Funded members 2, 3, 4 with 0.02 SOL each for transaction fees");
+  const fundTxSig = await sendAndConfirmTransaction(pg.connection, fundTx, [payerKeypair], {
+    commitment: "confirmed",
+  });
+  console.log(`Funded members 2, 3, 4 with 0.02 SOL each (tx: ${fundTxSig})`);
 
   // Create token accounts for each member
   const member1TokenAccount = await createAccount(
@@ -119,13 +163,21 @@ async function runHappyPathTest() {
     member4.publicKey
   );
 
+  console.log(`Member 1 token account: ${member1TokenAccount.toBase58()}`);
+  console.log(`Member 2 token account: ${member2TokenAccount.toBase58()}`);
+  console.log(`Member 3 token account: ${member3TokenAccount.toBase58()}`);
+  console.log(`Member 4 token account: ${member4TokenAccount.toBase58()}`);
+
   // Mint 200 tokens (200,000,000 base units) to each of the 4 members
   const mintAmount = 200_000_000n; // 200 * 10^6
-  await mintTo(pg.connection, payerKeypair, mint, member1TokenAccount, payerKeypair, mintAmount);
-  await mintTo(pg.connection, payerKeypair, mint, member2TokenAccount, payerKeypair, mintAmount);
-  await mintTo(pg.connection, payerKeypair, mint, member3TokenAccount, payerKeypair, mintAmount);
-  await mintTo(pg.connection, payerKeypair, mint, member4TokenAccount, payerKeypair, mintAmount);
-  console.log("Minted 200 tokens (200,000,000 base units) to all 4 members");
+  const mint1Tx = await mintTo(pg.connection, payerKeypair, mint, member1TokenAccount, payerKeypair, mintAmount);
+  console.log(`Minted 200 tokens to Member 1 (tx: ${mint1Tx})`);
+  const mint2Tx = await mintTo(pg.connection, payerKeypair, mint, member2TokenAccount, payerKeypair, mintAmount);
+  console.log(`Minted 200 tokens to Member 2 (tx: ${mint2Tx})`);
+  const mint3Tx = await mintTo(pg.connection, payerKeypair, mint, member3TokenAccount, payerKeypair, mintAmount);
+  console.log(`Minted 200 tokens to Member 3 (tx: ${mint3Tx})`);
+  const mint4Tx = await mintTo(pg.connection, payerKeypair, mint, member4TokenAccount, payerKeypair, mintAmount);
+  console.log(`Minted 200 tokens to Member 4 (tx: ${mint4Tx})`);
 
   // --------------------------------------------------------------------------
   // Step 2: create_circle with specified parameters and derive PDAs
@@ -149,6 +201,10 @@ async function runHappyPathTest() {
     pg.program.programId
   );
 
+  console.log(`Circle PDA: ${circlePda.toBase58()}`);
+  console.log(`Creator Member (Slot 1) PDA: ${creatorMemberPda.toBase58()}`);
+  console.log(`Vault PDA: ${vaultPda.toBase58()}`);
+
   const membersTarget = 4;
   const contribution = new BN(10).mul(ONE_TOKEN); // 10 tokens = 10,000,000 base units
   const depositPct = 50;
@@ -157,7 +213,7 @@ async function runHappyPathTest() {
   const fillWindowDuration = new BN(0);
   const openWindowDuration = new BN(0);
 
-  await pg.program.methods
+  const createCircleSig = await pg.program.methods
     .createCircle(
       circleId,
       membersTarget,
@@ -181,8 +237,14 @@ async function runHappyPathTest() {
     })
     .rpc();
 
-  // Assert Slot 1 deposit: max(50% * (4 - 1) * 10, 10) = 15 tokens
-  const m1AccountAfterCreate = await pg.program.account.member.fetch(creatorMemberPda);
+  // Wait for signature to reach "confirmed" before doing anything else
+  await waitForConfirmation(createCircleSig, "createCircle");
+
+  // Fetch Slot 1 member account with up to 8 retries
+  const m1AccountAfterCreate = await fetchWithRetry(
+    () => pg.program.account.member.fetch(creatorMemberPda, "confirmed"),
+    "Member 1 (creator) account after createCircle"
+  );
   assertEqual(
     m1AccountAfterCreate.depositRemaining.toString(),
     new BN(15).mul(ONE_TOKEN).toString(),
@@ -199,7 +261,9 @@ async function runHappyPathTest() {
     [Buffer.from("member"), circlePda.toBuffer(), member2.publicKey.toBuffer()],
     pg.program.programId
   );
-  await pg.program.methods
+  console.log(`Member 2 PDA: ${member2Pda.toBase58()}`);
+
+  const join2Sig = await pg.program.methods
     .joinCircle()
     .accounts({
       circle: circlePda,
@@ -214,7 +278,12 @@ async function runHappyPathTest() {
     .signers([member2])
     .rpc();
 
-  const m2Account = await pg.program.account.member.fetch(member2Pda);
+  await waitForConfirmation(join2Sig, "joinCircle (Member 2)");
+
+  const m2Account = await fetchWithRetry(
+    () => pg.program.account.member.fetch(member2Pda, "confirmed"),
+    "Member 2 account after joinCircle"
+  );
   assertEqual(
     m2Account.depositRemaining.toString(),
     new BN(10).mul(ONE_TOKEN).toString(),
@@ -226,7 +295,9 @@ async function runHappyPathTest() {
     [Buffer.from("member"), circlePda.toBuffer(), member3.publicKey.toBuffer()],
     pg.program.programId
   );
-  await pg.program.methods
+  console.log(`Member 3 PDA: ${member3Pda.toBase58()}`);
+
+  const join3Sig = await pg.program.methods
     .joinCircle()
     .accounts({
       circle: circlePda,
@@ -241,7 +312,12 @@ async function runHappyPathTest() {
     .signers([member3])
     .rpc();
 
-  const m3Account = await pg.program.account.member.fetch(member3Pda);
+  await waitForConfirmation(join3Sig, "joinCircle (Member 3)");
+
+  const m3Account = await fetchWithRetry(
+    () => pg.program.account.member.fetch(member3Pda, "confirmed"),
+    "Member 3 account after joinCircle"
+  );
   assertEqual(
     m3Account.depositRemaining.toString(),
     new BN(10).mul(ONE_TOKEN).toString(),
@@ -253,7 +329,9 @@ async function runHappyPathTest() {
     [Buffer.from("member"), circlePda.toBuffer(), member4.publicKey.toBuffer()],
     pg.program.programId
   );
-  await pg.program.methods
+  console.log(`Member 4 PDA: ${member4Pda.toBase58()}`);
+
+  const join4Sig = await pg.program.methods
     .joinCircle()
     .accounts({
       circle: circlePda,
@@ -268,7 +346,12 @@ async function runHappyPathTest() {
     .signers([member4])
     .rpc();
 
-  const m4Account = await pg.program.account.member.fetch(member4Pda);
+  await waitForConfirmation(join4Sig, "joinCircle (Member 4)");
+
+  const m4Account = await fetchWithRetry(
+    () => pg.program.account.member.fetch(member4Pda, "confirmed"),
+    "Member 4 account after joinCircle"
+  );
   assertEqual(
     m4Account.depositRemaining.toString(),
     new BN(10).mul(ONE_TOKEN).toString(),
@@ -276,7 +359,10 @@ async function runHappyPathTest() {
   );
 
   // Assert circle transitions to Active upon 4th member joining
-  const circleAfterJoin = await pg.program.account.circle.fetch(circlePda);
+  const circleAfterJoin = await fetchWithRetry(
+    () => pg.program.account.circle.fetch(circlePda, "confirmed"),
+    "Circle account after fourth member joined"
+  );
   const isCircleActive = circleAfterJoin.status.active !== undefined;
   assertEqual(
     isCircleActive,
@@ -305,7 +391,7 @@ async function runHappyPathTest() {
   console.log("\n--- Step 4: Period 1 Contributions and Payout ---");
 
   // Member 1 contributes
-  await pg.program.methods
+  const cont1Sig = await pg.program.methods
     .contribute()
     .accounts({
       circle: circlePda,
@@ -317,9 +403,10 @@ async function runHappyPathTest() {
       tokenProgram: TOKEN_PROGRAM_ID,
     })
     .rpc();
+  await waitForConfirmation(cont1Sig, "contribute (Member 1)");
 
   // Member 2 contributes
-  await pg.program.methods
+  const cont2Sig = await pg.program.methods
     .contribute()
     .accounts({
       circle: circlePda,
@@ -332,9 +419,10 @@ async function runHappyPathTest() {
     })
     .signers([member2])
     .rpc();
+  await waitForConfirmation(cont2Sig, "contribute (Member 2)");
 
   // Member 3 contributes
-  await pg.program.methods
+  const cont3Sig = await pg.program.methods
     .contribute()
     .accounts({
       circle: circlePda,
@@ -347,9 +435,10 @@ async function runHappyPathTest() {
     })
     .signers([member3])
     .rpc();
+  await waitForConfirmation(cont3Sig, "contribute (Member 3)");
 
   // Member 4 contributes
-  await pg.program.methods
+  const cont4Sig = await pg.program.methods
     .contribute()
     .accounts({
       circle: circlePda,
@@ -362,8 +451,12 @@ async function runHappyPathTest() {
     })
     .signers([member4])
     .rpc();
+  await waitForConfirmation(cont4Sig, "contribute (Member 4)");
 
-  const circleAfterContribute = await pg.program.account.circle.fetch(circlePda);
+  const circleAfterContribute = await fetchWithRetry(
+    () => pg.program.account.circle.fetch(circlePda, "confirmed"),
+    "Circle account after contributions"
+  );
   assertEqual(
     circleAfterContribute.contributionsThisPeriod,
     4,
@@ -371,10 +464,14 @@ async function runHappyPathTest() {
   );
 
   // Balance of Member 1 before payout (should be 175 tokens: 200 minted - 15 deposit - 10 contribution)
-  const slot1BalBefore = (await getAccount(pg.connection, member1TokenAccount)).amount;
+  const slot1AccountBefore = await fetchWithRetry(
+    () => getAccount(pg.connection, member1TokenAccount, "confirmed"),
+    "Member 1 token account before payout"
+  );
+  const slot1BalBefore = slot1AccountBefore.amount;
 
   // Call payout for period 1 (recipient is Slot 1)
-  await pg.program.methods
+  const payoutSig = await pg.program.methods
     .payout()
     .accounts({
       circle: circlePda,
@@ -386,9 +483,14 @@ async function runHappyPathTest() {
       tokenProgram: TOKEN_PROGRAM_ID,
     })
     .rpc();
+  await waitForConfirmation(payoutSig, "payout (Period 1 to Slot 1)");
 
   // Assert Slot 1 receives exactly 40 tokens (40,000,000 base units)
-  const slot1BalAfter = (await getAccount(pg.connection, member1TokenAccount)).amount;
+  const slot1AccountAfter = await fetchWithRetry(
+    () => getAccount(pg.connection, member1TokenAccount, "confirmed"),
+    "Member 1 token account after payout"
+  );
+  const slot1BalAfter = slot1AccountAfter.amount;
   const slot1TokensReceived = slot1BalAfter - slot1BalBefore;
   assertEqual(
     slot1TokensReceived.toString(),
@@ -397,7 +499,10 @@ async function runHappyPathTest() {
   );
 
   // Assert Vault holds exactly 45 tokens (45,000,000 base units) after payout (15 + 10 + 10 + 10 deposits)
-  const vaultAfterPayout = await getAccount(pg.connection, vaultPda);
+  const vaultAfterPayout = await fetchWithRetry(
+    () => getAccount(pg.connection, vaultPda, "confirmed"),
+    "Vault token account after payout"
+  );
   assertEqual(
     vaultAfterPayout.amount.toString(),
     (45_000_000n).toString(),
@@ -405,7 +510,10 @@ async function runHappyPathTest() {
   );
 
   // Assert Slot 1 member is marked as paid
-  const m1AccountAfterPayout = await pg.program.account.member.fetch(creatorMemberPda);
+  const m1AccountAfterPayout = await fetchWithRetry(
+    () => pg.program.account.member.fetch(creatorMemberPda, "confirmed"),
+    "Member 1 account after payout"
+  );
   assertEqual(
     m1AccountAfterPayout.hasBeenPaid,
     true,
