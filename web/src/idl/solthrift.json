@@ -1,0 +1,1276 @@
+{
+  "version": "0.1.0",
+  "name": "solthrift",
+  "instructions": [
+    {
+      "name": "createCircle",
+      "accounts": [
+        {
+          "name": "circle",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "creatorMember",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "vault",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "creator",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "tokenMint",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "creatorTokenAccount",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "tokenProgram",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "systemProgram",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "rent",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": [
+        {
+          "name": "circleId",
+          "type": "u64"
+        },
+        {
+          "name": "members",
+          "type": "u8"
+        },
+        {
+          "name": "contribution",
+          "type": "u64"
+        },
+        {
+          "name": "depositPct",
+          "type": "u8"
+        },
+        {
+          "name": "periodDuration",
+          "type": "i64"
+        },
+        {
+          "name": "graceDuration",
+          "type": "i64"
+        },
+        {
+          "name": "fillWindowDuration",
+          "type": "i64"
+        },
+        {
+          "name": "openWindowDuration",
+          "type": "i64"
+        }
+      ]
+    },
+    {
+      "name": "joinCircle",
+      "accounts": [
+        {
+          "name": "circle",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "member",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "memberWallet",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "tokenMint",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "memberTokenAccount",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "vault",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "tokenProgram",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "systemProgram",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "contribute",
+      "accounts": [
+        {
+          "name": "circle",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "member",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "memberWallet",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "tokenMint",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "memberTokenAccount",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "vault",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "tokenProgram",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "payout",
+      "accounts": [
+        {
+          "name": "circle",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "recipientMember",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "tokenMint",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "recipientTokenAccount",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "vault",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "caller",
+          "isMut": false,
+          "isSigner": true
+        },
+        {
+          "name": "tokenProgram",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "removeDefaulter",
+      "accounts": [
+        {
+          "name": "circle",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "member",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "tokenMint",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "memberTokenAccount",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "vault",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "caller",
+          "isMut": false,
+          "isSigner": true
+        },
+        {
+          "name": "tokenProgram",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "flagLeaving",
+      "accounts": [
+        {
+          "name": "circle",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "member",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "memberWallet",
+          "isMut": false,
+          "isSigner": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "exitMember",
+      "accounts": [
+        {
+          "name": "circle",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "member",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "tokenMint",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "memberTokenAccount",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "vault",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "caller",
+          "isMut": false,
+          "isSigner": true
+        },
+        {
+          "name": "tokenProgram",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "claimRefund",
+      "accounts": [
+        {
+          "name": "circle",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "member",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "tokenMint",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "memberTokenAccount",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "vault",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "memberWallet",
+          "isMut": false,
+          "isSigner": true
+        },
+        {
+          "name": "tokenProgram",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "claimForfeit",
+      "accounts": [
+        {
+          "name": "circle",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "member",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "tokenMint",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "memberTokenAccount",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "vault",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "memberWallet",
+          "isMut": false,
+          "isSigner": true
+        },
+        {
+          "name": "tokenProgram",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "cancelOpenCircle",
+      "accounts": [
+        {
+          "name": "circle",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "caller",
+          "isMut": false,
+          "isSigner": true
+        }
+      ],
+      "args": []
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Circle",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "creator",
+            "type": "publicKey"
+          },
+          {
+            "name": "circleId",
+            "type": "u64"
+          },
+          {
+            "name": "tokenMint",
+            "type": "publicKey"
+          },
+          {
+            "name": "vault",
+            "type": "publicKey"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "vaultBump",
+            "type": "u8"
+          },
+          {
+            "name": "status",
+            "type": {
+              "defined": "CircleStatus"
+            }
+          },
+          {
+            "name": "membersTarget",
+            "type": "u8"
+          },
+          {
+            "name": "currentMemberCount",
+            "type": "u8"
+          },
+          {
+            "name": "activeMemberCount",
+            "type": "u8"
+          },
+          {
+            "name": "contributionsThisPeriod",
+            "type": "u8"
+          },
+          {
+            "name": "orderLen",
+            "type": "u8"
+          },
+          {
+            "name": "expectedContributors",
+            "type": "u8"
+          },
+          {
+            "name": "reserve",
+            "type": "u64"
+          },
+          {
+            "name": "owingCount",
+            "type": "u8"
+          },
+          {
+            "name": "pendingOwing",
+            "type": "u8"
+          },
+          {
+            "name": "periodRefundable",
+            "type": "bool"
+          },
+          {
+            "name": "unpaidCount",
+            "type": "u8"
+          },
+          {
+            "name": "forfeitPerClaimant",
+            "type": "u64"
+          },
+          {
+            "name": "forfeitPoolRemaining",
+            "type": "u64"
+          },
+          {
+            "name": "contribution",
+            "type": "u64"
+          },
+          {
+            "name": "depositPct",
+            "type": "u8"
+          },
+          {
+            "name": "periodDuration",
+            "type": "i64"
+          },
+          {
+            "name": "graceDuration",
+            "type": "i64"
+          },
+          {
+            "name": "fillWindowDuration",
+            "type": "i64"
+          },
+          {
+            "name": "openDeadline",
+            "type": "i64"
+          },
+          {
+            "name": "minMembers",
+            "type": "u8"
+          },
+          {
+            "name": "currentPeriod",
+            "type": "u8"
+          },
+          {
+            "name": "periodStartTime",
+            "type": "i64"
+          },
+          {
+            "name": "members",
+            "type": {
+              "array": [
+                "publicKey",
+                10
+              ]
+            }
+          },
+          {
+            "name": "payoutOrder",
+            "type": {
+              "array": [
+                "u8",
+                10
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Member",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "circle",
+            "type": "publicKey"
+          },
+          {
+            "name": "wallet",
+            "type": "publicKey"
+          },
+          {
+            "name": "slot",
+            "type": "u8"
+          },
+          {
+            "name": "depositRemaining",
+            "type": "u64"
+          },
+          {
+            "name": "hasBeenPaid",
+            "type": "bool"
+          },
+          {
+            "name": "lastContributedPeriod",
+            "type": "u8"
+          },
+          {
+            "name": "status",
+            "type": {
+              "defined": "MemberStatus"
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "leaving",
+            "type": "bool"
+          },
+          {
+            "name": "forfeitClaimed",
+            "type": "bool"
+          }
+        ]
+      }
+    }
+  ],
+  "types": [
+    {
+      "name": "CircleStatus",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Open"
+          },
+          {
+            "name": "Active"
+          },
+          {
+            "name": "Filling"
+          },
+          {
+            "name": "Closing"
+          },
+          {
+            "name": "Closed"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MemberStatus",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Active"
+          },
+          {
+            "name": "Removed"
+          },
+          {
+            "name": "Left"
+          }
+        ]
+      }
+    }
+  ],
+  "events": [
+    {
+      "name": "CircleCreated",
+      "fields": [
+        {
+          "name": "circle",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "creator",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "circleId",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "tokenMint",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "vault",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "membersTarget",
+          "type": "u8",
+          "index": false
+        },
+        {
+          "name": "contribution",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "depositPct",
+          "type": "u8",
+          "index": false
+        },
+        {
+          "name": "periodDuration",
+          "type": "i64",
+          "index": false
+        },
+        {
+          "name": "graceDuration",
+          "type": "i64",
+          "index": false
+        },
+        {
+          "name": "openDeadline",
+          "type": "i64",
+          "index": false
+        }
+      ]
+    },
+    {
+      "name": "MemberJoined",
+      "fields": [
+        {
+          "name": "circle",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "member",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "wallet",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "slot",
+          "type": "u8",
+          "index": false
+        },
+        {
+          "name": "depositPaid",
+          "type": "u64",
+          "index": false
+        }
+      ]
+    },
+    {
+      "name": "RoundStarted",
+      "fields": [
+        {
+          "name": "circle",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "currentPeriod",
+          "type": "u8",
+          "index": false
+        },
+        {
+          "name": "periodStartTime",
+          "type": "i64",
+          "index": false
+        }
+      ]
+    },
+    {
+      "name": "Contributed",
+      "fields": [
+        {
+          "name": "circle",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "member",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "wallet",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "period",
+          "type": "u8",
+          "index": false
+        },
+        {
+          "name": "amount",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "timestamp",
+          "type": "i64",
+          "index": false
+        }
+      ]
+    },
+    {
+      "name": "PaidOut",
+      "fields": [
+        {
+          "name": "circle",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "recipientMember",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "recipientWallet",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "slot",
+          "type": "u8",
+          "index": false
+        },
+        {
+          "name": "period",
+          "type": "u8",
+          "index": false
+        },
+        {
+          "name": "amount",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "timestamp",
+          "type": "i64",
+          "index": false
+        }
+      ]
+    },
+    {
+      "name": "MemberRemoved",
+      "fields": [
+        {
+          "name": "circle",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "member",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "wallet",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "slot",
+          "type": "u8",
+          "index": false
+        },
+        {
+          "name": "coveredAmount",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "reservedAmount",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "refundedAmount",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "timestamp",
+          "type": "i64",
+          "index": false
+        }
+      ]
+    },
+    {
+      "name": "LeavingFlagged",
+      "fields": [
+        {
+          "name": "circle",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "member",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "wallet",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "slot",
+          "type": "u8",
+          "index": false
+        },
+        {
+          "name": "timestamp",
+          "type": "i64",
+          "index": false
+        }
+      ]
+    },
+    {
+      "name": "MemberLeft",
+      "fields": [
+        {
+          "name": "circle",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "member",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "wallet",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "slot",
+          "type": "u8",
+          "index": false
+        },
+        {
+          "name": "refundedAmount",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "timestamp",
+          "type": "i64",
+          "index": false
+        }
+      ]
+    },
+    {
+      "name": "RefundClaimed",
+      "fields": [
+        {
+          "name": "circle",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "member",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "wallet",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "slot",
+          "type": "u8",
+          "index": false
+        },
+        {
+          "name": "amount",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "timestamp",
+          "type": "i64",
+          "index": false
+        }
+      ]
+    },
+    {
+      "name": "ForfeitClaimed",
+      "fields": [
+        {
+          "name": "circle",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "member",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "wallet",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "slot",
+          "type": "u8",
+          "index": false
+        },
+        {
+          "name": "amount",
+          "type": "u64",
+          "index": false
+        },
+        {
+          "name": "timestamp",
+          "type": "i64",
+          "index": false
+        }
+      ]
+    },
+    {
+      "name": "CircleCancelled",
+      "fields": [
+        {
+          "name": "circle",
+          "type": "publicKey",
+          "index": false
+        },
+        {
+          "name": "timestamp",
+          "type": "i64",
+          "index": false
+        }
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "InvalidMemberCount",
+      "msg": "Member count must be between 3 and 10"
+    },
+    {
+      "code": 6001,
+      "name": "InvalidDepositPercentage",
+      "msg": "Deposit percentage must be between 25% and 100%"
+    },
+    {
+      "code": 6002,
+      "name": "ContributionTooLow",
+      "msg": "Contribution must be at least 5 whole tokens"
+    },
+    {
+      "code": 6003,
+      "name": "InvalidPeriodDuration",
+      "msg": "Period duration must be greater than zero"
+    },
+    {
+      "code": 6004,
+      "name": "InvalidGraceDuration",
+      "msg": "Grace duration cannot be negative"
+    },
+    {
+      "code": 6005,
+      "name": "InvalidFillWindowDuration",
+      "msg": "Fill window duration cannot be negative"
+    },
+    {
+      "code": 6006,
+      "name": "InvalidSlot",
+      "msg": "Slot must be between 1 and the total number of members"
+    },
+    {
+      "code": 6007,
+      "name": "SlotNotFoundInPayoutOrder",
+      "msg": "Slot not found in payout order"
+    },
+    {
+      "code": 6008,
+      "name": "PayoutOrderEmpty",
+      "msg": "Payout order is empty (order length is zero)"
+    },
+    {
+      "code": 6009,
+      "name": "InvalidPeriod",
+      "msg": "Period is invalid"
+    },
+    {
+      "code": 6010,
+      "name": "MathOverflow",
+      "msg": "Math operation overflowed"
+    },
+    {
+      "code": 6011,
+      "name": "CircleNotOpen",
+      "msg": "Circle is not open for new members"
+    },
+    {
+      "code": 6012,
+      "name": "CircleFull",
+      "msg": "Circle has already reached maximum members"
+    },
+    {
+      "code": 6013,
+      "name": "CircleNotActive",
+      "msg": "Circle is not currently active"
+    },
+    {
+      "code": 6014,
+      "name": "CircleNotActiveOrFilling",
+      "msg": "Circle is not active or filling"
+    },
+    {
+      "code": 6015,
+      "name": "CircleNotFillingOrClosing",
+      "msg": "Circle is not filling or closing"
+    },
+    {
+      "code": 6016,
+      "name": "CircleNotClosing",
+      "msg": "Circle is not in closing state"
+    },
+    {
+      "code": 6017,
+      "name": "MemberNotActive",
+      "msg": "Member is not active"
+    },
+    {
+      "code": 6018,
+      "name": "MemberNotEligibleToExit",
+      "msg": "Member has not flagged leaving and circle is not closing"
+    },
+    {
+      "code": 6019,
+      "name": "RefundNotAvailable",
+      "msg": "Refund is not available for this circle state"
+    },
+    {
+      "code": 6020,
+      "name": "NothingToClaim",
+      "msg": "No refund available to claim for this period"
+    },
+    {
+      "code": 6021,
+      "name": "ForfeitAlreadyClaimed",
+      "msg": "Forfeit share has already been claimed by this member"
+    },
+    {
+      "code": 6022,
+      "name": "NoForfeitToClaim",
+      "msg": "No forfeit share available to claim"
+    },
+    {
+      "code": 6023,
+      "name": "OpenWindowNotExpired",
+      "msg": "Open window for circle has not yet expired"
+    },
+    {
+      "code": 6024,
+      "name": "AlreadyContributedThisPeriod",
+      "msg": "Member has already contributed for the current period"
+    },
+    {
+      "code": 6025,
+      "name": "ContributionWindowClosed",
+      "msg": "Contribution window has closed (deadline plus grace passed)"
+    },
+    {
+      "code": 6026,
+      "name": "GracePeriodNotExpired",
+      "msg": "Deadline plus grace period has not expired yet"
+    },
+    {
+      "code": 6027,
+      "name": "MemberAlreadyContributed",
+      "msg": "Member has already contributed for this period and cannot be removed as defaulter"
+    },
+    {
+      "code": 6028,
+      "name": "InsufficientDepositForCoverage",
+      "msg": "Member's remaining deposit is insufficient to cover this period's contribution"
+    },
+    {
+      "code": 6029,
+      "name": "ContributionsIncomplete",
+      "msg": "Cannot payout until all expected contributions have been received"
+    },
+    {
+      "code": 6030,
+      "name": "RecipientSlotMismatch",
+      "msg": "Recipient member slot does not match payout order for current period"
+    },
+    {
+      "code": 6031,
+      "name": "RecipientWalletMismatch",
+      "msg": "Recipient wallet does not match member slot in circle"
+    },
+    {
+      "code": 6032,
+      "name": "RecipientAlreadyPaid",
+      "msg": "Recipient has already been paid for this round"
+    },
+    {
+      "code": 6033,
+      "name": "MemberAlreadyPaid",
+      "msg": "Member has already been paid for this round"
+    },
+    {
+      "code": 6034,
+      "name": "RecipientNotActive",
+      "msg": "Recipient member is not active"
+    },
+    {
+      "code": 6035,
+      "name": "InvalidMemberCircle",
+      "msg": "Member account does not belong to this circle"
+    },
+    {
+      "code": 6036,
+      "name": "InvalidMemberPda",
+      "msg": "Member PDA address is invalid"
+    },
+    {
+      "code": 6037,
+      "name": "InvalidMemberWallet",
+      "msg": "Member wallet does not match signer"
+    },
+    {
+      "code": 6038,
+      "name": "InvalidMint",
+      "msg": "Token account mint does not match circle token mint"
+    },
+    {
+      "code": 6039,
+      "name": "InvalidTokenOwner",
+      "msg": "Token account owner does not match expected authority"
+    },
+    {
+      "code": 6040,
+      "name": "InvalidVault",
+      "msg": "Vault account does not match circle vault"
+    },
+    {
+      "code": 6041,
+      "name": "InvalidVaultOwner",
+      "msg": "Vault owner does not match circle PDA"
+    },
+    {
+      "code": 6042,
+      "name": "MemberAlreadyJoined",
+      "msg": "Member has already joined this circle"
+    },
+    {
+      "code": 6043,
+      "name": "InsufficientVaultFunds",
+      "msg": "Insufficient vault balance for payout"
+    },
+    {
+      "code": 6044,
+      "name": "InvalidPayoutAmount",
+      "msg": "Payout amount does not match expected period contributions"
+    },
+    {
+      "code": 6045,
+      "name": "NoContributionsToRefund",
+      "msg": "No contributions recorded for this period to refund"
+    },
+    {
+      "code": 6046,
+      "name": "InsufficientForfeitPool",
+      "msg": "Insufficient forfeit pool remaining"
+    }
+  ]
+}
