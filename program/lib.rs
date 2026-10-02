@@ -593,10 +593,15 @@ pub mod solthrift {
             }
             let idx = found_idx.ok_or(SolthriftError::SlotNotFoundInPayoutOrder)?;
 
-            for i in idx..((circle.order_len as usize) - 1) {
-                circle.payout_order[i] = circle.payout_order[i + 1];
+            let last_entry_idx = (circle.order_len as usize)
+                .checked_sub(1)
+                .ok_or(SolthriftError::PayoutOrderEmpty)?;
+
+            for i in idx..last_entry_idx {
+                let next_slot = circle.payout_order[i + 1];
+                circle.payout_order[i] = next_slot;
             }
-            circle.payout_order[(circle.order_len as usize) - 1] = 0;
+            circle.payout_order[last_entry_idx] = 0;
             circle.order_len = circle
                 .order_len
                 .checked_sub(1)
@@ -687,10 +692,15 @@ pub mod solthrift {
             let idx = found_idx.ok_or(SolthriftError::SlotNotFoundInPayoutOrder)?;
 
             // Shift later entries left
-            for i in idx..((circle.order_len as usize) - 1) {
-                circle.payout_order[i] = circle.payout_order[i + 1];
+            let last_entry_idx = (circle.order_len as usize)
+                .checked_sub(1)
+                .ok_or(SolthriftError::PayoutOrderEmpty)?;
+
+            for i in idx..last_entry_idx {
+                let next_slot = circle.payout_order[i + 1];
+                circle.payout_order[i] = next_slot;
             }
-            circle.payout_order[(circle.order_len as usize) - 1] = 0;
+            circle.payout_order[last_entry_idx] = 0;
             circle.order_len = circle
                 .order_len
                 .checked_sub(1)
@@ -1203,6 +1213,8 @@ pub enum SolthriftError {
     InvalidSlot,
     #[msg("Slot not found in payout order")]
     SlotNotFoundInPayoutOrder,
+    #[msg("Payout order is empty (order length is zero)")]
+    PayoutOrderEmpty,
     #[msg("Period is invalid")]
     InvalidPeriod,
     #[msg("Math operation overflowed")]
