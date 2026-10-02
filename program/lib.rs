@@ -20,6 +20,10 @@ declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS");
 /// + 1 (current_member_count)
 /// + 1 (active_member_count)
 /// + 1 (contributions_this_period)
+/// + 1 (order_len)
+/// + 1 (expected_contributors)
+/// + 8 (reserve)
+/// + 1 (owing_count)
 /// + 8 (contribution)
 /// + 1 (deposit_pct)
 /// + 8 (period_duration)
@@ -30,7 +34,7 @@ declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS");
 /// + 8 (period_start_time)
 /// + 320 (members: [Pubkey; 10])
 /// + 10 (payout_order: [u8; 10])
-/// = 492 bytes
+/// = 503 bytes
 pub const CIRCLE_SPACE: usize = 8
     + 32
     + 8
@@ -42,6 +46,10 @@ pub const CIRCLE_SPACE: usize = 8
     + 1
     + 1
     + 1
+    + 1
+    + 1
+    + 1
+    + 8
     + 1
     + 8
     + 1
@@ -143,6 +151,10 @@ pub mod solthrift {
         circle.current_member_count = 1;
         circle.active_member_count = 1;
         circle.contributions_this_period = 0;
+        circle.order_len = 0;
+        circle.expected_contributors = 0;
+        circle.reserve = 0;
+        circle.owing_count = 0;
         circle.contribution = contribution;
         circle.deposit_pct = deposit_pct;
         circle.period_duration = period_duration;
@@ -274,6 +286,10 @@ pub mod solthrift {
             circle.current_period = 1;
             circle.period_start_time = Clock::get()?.unix_timestamp;
             circle.contributions_this_period = 0;
+            circle.order_len = circle.members_target;
+            circle.expected_contributors = circle.active_member_count;
+            circle.reserve = 0;
+            circle.owing_count = 0;
             round_activated = true;
         }
 
@@ -375,15 +391,15 @@ pub mod solthrift {
             SolthriftError::CircleNotActive
         );
 
-        // Allowed only when contributions_this_period == active_member_count
+        // Allowed only when contributions_this_period == expected_contributors
         require!(
-            circle.contributions_this_period == circle.active_member_count,
+            circle.contributions_this_period == circle.expected_contributors,
             SolthriftError::ContributionsIncomplete
         );
 
-        // Period bounds check
+        // Period bounds check: 1 <= current_period <= order_len
         require!(
-            circle.current_period >= 1 && (circle.current_period as usize) <= circle.payout_order.len(),
+            circle.current_period >= 1 && circle.current_period <= circle.order_len,
             SolthriftError::InvalidPeriod
         );
 
@@ -419,20 +435,36 @@ pub mod solthrift {
             SolthriftError::RecipientAlreadyPaid
         );
 
-        // Pot calculation: exactly contribution * active_member_count.
-        // Never pays out deposits - transfers only the contributions collected this period.
-        let pot_amount = circle
-            .contribution
-            .checked_mul(circle.active_member_count as u64)
+        // Pot calculation:
+        // base = contributions_this_period * contribution
+        // draw = min(reserve, contribution * owing_count)
+        // pot = base + draw
+        let base_contributions = (circle.contributions_this_period as u64)
+            .checked_mul(circle.contribution)
             .ok_or(SolthriftError::MathOverflow)?;
 
-        // Ensure vault has sufficient funds to cover the pot payout
+        let owing_needed = circle
+            .contribution
+            .checked_mul(circle.owing_count as u64)
+            .ok_or(SolthriftError::MathOverflow)?;
+        let draw = std::cmp::min(circle.reserve, owing_needed);
+
+        circle.reserve = circle
+            .reserve
+            .checked_sub(draw)
+            .ok_or(SolthriftError::MathOverflow)?;
+
+        let pot = base_contributions
+            .checked_add(draw)
+            .ok_or(SolthriftError::MathOverflow)?;
+
+        // Verify vault holds at least the pot before paying
         require!(
-            ctx.accounts.vault.amount >= pot_amount,
+            ctx.accounts.vault.amount >= pot,
             SolthriftError::InsufficientVaultFunds
         );
 
-        // Transfer pot_amount from vault to recipient's token account, signed by Circle PDA seeds
+        // Transfer pot from vault to recipient's token account, signed by Circle PDA seeds
         let creator_key = circle.creator;
         let circle_id_bytes = circle.circle_id.to_le_bytes();
         let bump = circle.bump;
@@ -451,22 +483,19 @@ pub mod solthrift {
         let cpi_program = ctx.accounts.token_program.to_account_info();
         token::transfer(
             CpiContext::new_with_signer(cpi_program, cpi_accounts, signer_seeds),
-            pot_amount,
+            pot,
         )?;
 
         // Mark recipient as paid
         recipient_member.has_been_paid = true;
 
-        // Reset contributions_this_period to 0
-        circle.contributions_this_period = 0;
-
         let now = Clock::get()?.unix_timestamp;
         let paid_period = circle.current_period;
 
-        // If this was the last period (current_period == members_target),
-        // set status to Filling instead and record the time.
-        // Otherwise, add 1 to current_period and set period_start_time to now.
-        if circle.current_period == circle.members_target {
+        // If current_period == order_len, set status to Filling;
+        // otherwise current_period += 1, contributions_this_period = 0,
+        // period_start_time = now, expected_contributors = active_member_count.
+        if circle.current_period == circle.order_len {
             circle.status = CircleStatus::Filling;
             circle.period_start_time = now;
         } else {
@@ -474,7 +503,9 @@ pub mod solthrift {
                 .current_period
                 .checked_add(1)
                 .ok_or(SolthriftError::MathOverflow)?;
+            circle.contributions_this_period = 0;
             circle.period_start_time = now;
+            circle.expected_contributors = circle.active_member_count;
         }
 
         // Emit Section 8 paid_out event
@@ -484,7 +515,180 @@ pub mod solthrift {
             recipient_wallet: recipient_member.wallet,
             slot: recipient_slot,
             period: paid_period,
-            amount: pot_amount,
+            amount: pot,
+            timestamp: now,
+        });
+
+        Ok(())
+    }
+
+    // Spec Section 5, Instruction 5: remove_defaulter
+    pub fn remove_defaulter(ctx: Context<RemoveDefaulter>) -> Result<()> {
+        let circle = &mut ctx.accounts.circle;
+        let member = &mut ctx.accounts.member;
+
+        // Allowed only when circle is Active
+        require!(
+            circle.status == CircleStatus::Active,
+            SolthriftError::CircleNotActive
+        );
+
+        // Target member must be currently Active
+        require!(
+            member.status == MemberStatus::Active,
+            SolthriftError::MemberNotActive
+        );
+
+        // Target member must have missed contribution this period
+        require!(
+            member.last_contributed_period != circle.current_period,
+            SolthriftError::MemberAlreadyContributed
+        );
+
+        // Allowed only when now > period_start_time + period_duration + grace_duration
+        let now = Clock::get()?.unix_timestamp;
+        let deadline_with_grace = circle
+            .period_start_time
+            .checked_add(circle.period_duration)
+            .ok_or(SolthriftError::MathOverflow)?
+            .checked_add(circle.grace_duration)
+            .ok_or(SolthriftError::MathOverflow)?;
+        require!(
+            now > deadline_with_grace,
+            SolthriftError::GracePeriodNotExpired
+        );
+
+        // 1. Mark member Removed and decrement active_member_count
+        member.status = MemberStatus::Removed;
+        circle.active_member_count = circle
+            .active_member_count
+            .checked_sub(1)
+            .ok_or(SolthriftError::MathOverflow)?;
+
+        // 2. Cover this period: contributions_this_period += 1, and subtract contribution
+        // from the member's deposit_remaining (vault already holds that money).
+        circle.contributions_this_period = circle
+            .contributions_this_period
+            .checked_add(1)
+            .ok_or(SolthriftError::MathOverflow)?;
+        let covered_amount = std::cmp::min(member.deposit_remaining, circle.contribution);
+        member.deposit_remaining = member
+            .deposit_remaining
+            .checked_sub(covered_amount)
+            .ok_or(SolthriftError::MathOverflow)?;
+
+        let mut reserved_amount = 0u64;
+        let refund_amount: u64;
+
+        // 3. If the member has NOT been paid:
+        // delete their entry from payout_order by shifting later entries left, order_len -= 1,
+        // and refund the rest of deposit_remaining to their wallet's token account.
+        if !member.has_been_paid {
+            let mut found_idx: Option<usize> = None;
+            for i in 0..(circle.order_len as usize) {
+                if circle.payout_order[i] == member.slot {
+                    found_idx = Some(i);
+                    break;
+                }
+            }
+            let idx = found_idx.ok_or(SolthriftError::SlotNotFoundInPayoutOrder)?;
+
+            // Shift later entries left
+            for i in idx..((circle.order_len as usize) - 1) {
+                circle.payout_order[i] = circle.payout_order[i + 1];
+            }
+            circle.payout_order[(circle.order_len as usize) - 1] = 0;
+            circle.order_len = circle
+                .order_len
+                .checked_sub(1)
+                .ok_or(SolthriftError::MathOverflow)?;
+
+            refund_amount = member.deposit_remaining;
+            member.deposit_remaining = 0;
+        } else {
+            // 4. If the member HAS been paid:
+            // remaining = order_len - current_period
+            // Move min(deposit_remaining, remaining * contribution) into reserve, owing_count += 1,
+            // and refund anything left to their wallet's token account.
+            let remaining_periods = (circle.order_len as u64)
+                .checked_sub(circle.current_period as u64)
+                .ok_or(SolthriftError::MathOverflow)?;
+            let needed_for_remaining = remaining_periods
+                .checked_mul(circle.contribution)
+                .ok_or(SolthriftError::MathOverflow)?;
+
+            reserved_amount = std::cmp::min(member.deposit_remaining, needed_for_remaining);
+            circle.reserve = circle
+                .reserve
+                .checked_add(reserved_amount)
+                .ok_or(SolthriftError::MathOverflow)?;
+            circle.owing_count = circle
+                .owing_count
+                .checked_add(1)
+                .ok_or(SolthriftError::MathOverflow)?;
+
+            refund_amount = member
+                .deposit_remaining
+                .checked_sub(reserved_amount)
+                .ok_or(SolthriftError::MathOverflow)?;
+            member.deposit_remaining = 0;
+        }
+
+        // Refund transfer if refund_amount > 0
+        if refund_amount > 0 {
+            let creator_key = circle.creator;
+            let circle_id_bytes = circle.circle_id.to_le_bytes();
+            let bump = circle.bump;
+            let signer_seeds: &[&[&[u8]]] = &[&[
+                b"circle",
+                creator_key.as_ref(),
+                circle_id_bytes.as_ref(),
+                &[bump],
+            ]];
+
+            let cpi_accounts = Transfer {
+                from: ctx.accounts.vault.to_account_info(),
+                to: ctx.accounts.member_token_account.to_account_info(),
+                authority: circle.to_account_info(),
+            };
+            let cpi_program = ctx.accounts.token_program.to_account_info();
+            token::transfer(
+                CpiContext::new_with_signer(cpi_program, cpi_accounts, signer_seeds),
+                refund_amount,
+            )?;
+        }
+
+        // 5. If active_member_count < min_members, set status to Closing and stop.
+        if circle.active_member_count < circle.min_members {
+            circle.status = CircleStatus::Closing;
+            emit!(MemberRemoved {
+                circle: circle.key(),
+                member: member.key(),
+                wallet: member.wallet,
+                slot: member.slot,
+                covered_amount,
+                reserved_amount,
+                refunded_amount: refund_amount,
+                timestamp: now,
+            });
+            return Ok(());
+        }
+
+        // 6. If removal leaves no unpaid entries (current_period > order_len), set status to Filling.
+        if circle.current_period > circle.order_len {
+            circle.status = CircleStatus::Filling;
+            circle.period_start_time = now;
+        }
+
+        // 7. Emit Section 8 member_removed event
+        emit!(MemberRemoved {
+            circle: circle.key(),
+            member: member.key(),
+            wallet: member.wallet,
+            slot: member.slot,
+            covered_amount,
+            reserved_amount,
+            refunded_amount: refund_amount,
             timestamp: now,
         });
 
@@ -676,6 +880,46 @@ pub struct Payout<'info> {
     pub token_program: Program<'info, Token>,
 }
 
+#[derive(Accounts)]
+pub struct RemoveDefaulter<'info> {
+    #[account(
+        mut,
+        has_one = vault,
+        has_one = token_mint,
+    )]
+    pub circle: Account<'info, Circle>,
+
+    /// Member PDA of the defaulting member to be removed
+    #[account(
+        mut,
+        has_one = circle,
+    )]
+    pub member: Account<'info, Member>,
+
+    pub token_mint: Account<'info, Mint>,
+
+    /// Destination token account to refund member's remaining deposit
+    #[account(
+        mut,
+        constraint = member_token_account.mint == token_mint.key() @ SolthriftError::InvalidMint,
+        constraint = member_token_account.owner == member.wallet @ SolthriftError::InvalidTokenOwner,
+    )]
+    pub member_token_account: Account<'info, TokenAccount>,
+
+    /// Program vault owned by the Circle PDA
+    #[account(
+        mut,
+        constraint = vault.key() == circle.vault @ SolthriftError::InvalidVault,
+        constraint = vault.mint == token_mint.key() @ SolthriftError::InvalidMint,
+    )]
+    pub vault: Account<'info, TokenAccount>,
+
+    /// Caller can be anyone (they only pay the transaction fee)
+    pub caller: Signer<'info>,
+
+    pub token_program: Program<'info, Token>,
+}
+
 // ============================================================================
 // ACCOUNT STATE DEFINITIONS (Section 3 & Section 4)
 // ============================================================================
@@ -685,6 +929,7 @@ pub enum CircleStatus {
     Open,
     Active,
     Filling,
+    Closing,
     Closed,
 }
 
@@ -701,6 +946,10 @@ pub struct Circle {
     pub current_member_count: u8,
     pub active_member_count: u8,
     pub contributions_this_period: u8,
+    pub order_len: u8,
+    pub expected_contributors: u8,
+    pub reserve: u64,
+    pub owing_count: u8,
     pub contribution: u64,
     pub deposit_pct: u8,
     pub period_duration: i64,
@@ -824,6 +1073,18 @@ pub struct PaidOut {
     pub timestamp: i64,
 }
 
+#[event]
+pub struct MemberRemoved {
+    pub circle: Pubkey,
+    pub member: Pubkey,
+    pub wallet: Pubkey,
+    pub slot: u8,
+    pub covered_amount: u64,
+    pub reserved_amount: u64,
+    pub refunded_amount: u64,
+    pub timestamp: i64,
+}
+
 // ============================================================================
 // ERRORS
 // ============================================================================
@@ -844,6 +1105,8 @@ pub enum SolthriftError {
     InvalidFillWindowDuration,
     #[msg("Slot must be between 1 and the total number of members")]
     InvalidSlot,
+    #[msg("Slot not found in payout order")]
+    SlotNotFoundInPayoutOrder,
     #[msg("Period is invalid")]
     InvalidPeriod,
     #[msg("Math operation overflowed")]
@@ -860,7 +1123,11 @@ pub enum SolthriftError {
     AlreadyContributedThisPeriod,
     #[msg("Contribution window has closed (deadline plus grace passed)")]
     ContributionWindowClosed,
-    #[msg("Cannot payout until all active members have contributed this period")]
+    #[msg("Deadline plus grace period has not expired yet")]
+    GracePeriodNotExpired,
+    #[msg("Member has already contributed for this period and cannot be removed as defaulter")]
+    MemberAlreadyContributed,
+    #[msg("Cannot payout until all expected contributions have been received")]
     ContributionsIncomplete,
     #[msg("Recipient member slot does not match payout order for current period")]
     RecipientSlotMismatch,
