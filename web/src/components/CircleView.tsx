@@ -40,7 +40,7 @@ import {
   getExplorerUrl,
   translateProgramError,
 } from '../solthriftClient';
-import { isPlaceholderMint, DEVNET_TOKEN_MINT } from '../config';
+import { isPlaceholderMint } from '../config';
 
 interface CircleViewProps {
   circleAddress?: string | null;
@@ -237,8 +237,6 @@ export const CircleView: FC<CircleViewProps> = ({
   // Format token symbol
   const tokenSymbol =
     circle && isPlaceholderMint(circle.tokenMint)
-      ? 'DEVNET-TOKEN'
-      : circle && DEVNET_TOKEN_MINT.equals(circle.tokenMint)
       ? 'DEVNET-TOKEN'
       : 'USDC';
 

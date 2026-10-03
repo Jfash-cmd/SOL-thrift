@@ -6,11 +6,9 @@ import { PublicKey } from '@solana/web3.js';
 export const PROGRAM_ID = new PublicKey('CfY1M7cdgv1AvkLPuquqbCPNxMz73icdukWQP2sKdPq4');
 
 /**
- * TODO: DEVNET_TOKEN_MINT placeholder.
- * Please provide the real Devnet token mint address to be configured here.
- * Do not guess one. Once provided, replace this placeholder.
+ * Devnet SPL Token Mint address
  */
-export const DEVNET_TOKEN_MINT = new PublicKey('11111111111111111111111111111111'); // TODO: set real token mint
+export const DEVNET_TOKEN_MINT = new PublicKey('4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU');
 
 /**
  * Cluster configuration: Devnet only per specification
