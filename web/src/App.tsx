@@ -4,16 +4,17 @@ import { WalletContextProvider } from './components/WalletContextProvider';
 import { Navbar } from './components/Navbar';
 import { CircleView } from './components/CircleView';
 import { CreateCircle } from './components/CreateCircle';
+import { LandingPage } from './components/LandingPage';
 import { ShieldCheck, BookOpen, ExternalLink } from 'lucide-react';
 
 interface RouteState {
-  tab: 'circle' | 'create';
+  tab: 'home' | 'circle' | 'create';
   circleAddress: string | null;
 }
 
 function parseCurrentRoute(): RouteState {
   if (typeof window === 'undefined') {
-    return { tab: 'circle', circleAddress: null };
+    return { tab: 'home', circleAddress: null };
   }
 
   const path = window.location.pathname;
@@ -36,7 +37,8 @@ function parseCurrentRoute(): RouteState {
     return { tab: 'create', circleAddress: null };
   }
 
-  return { tab: 'circle', circleAddress: null };
+  // Default: Landing page (home route)
+  return { tab: 'home', circleAddress: null };
 }
 
 export const AppContent: FC = () => {
@@ -57,25 +59,34 @@ export const AppContent: FC = () => {
 
   return (
     <div className="app-shell">
-      {/* Top Navigation */}
-      <Navbar
-        activeTab={route.tab}
-        onNavigate={(tab) => {
-          if (tab === 'create') {
-            navigateTo('/create');
-          } else {
-            if (route.circleAddress) {
-              navigateTo(`/circle/${route.circleAddress}`);
-            } else {
+      {/* Top Navigation shown on subpages (/circle, /create) */}
+      {route.tab !== 'home' && (
+        <Navbar
+          activeTab={route.tab === 'create' ? 'create' : 'circle'}
+          onNavigate={(tab) => {
+            if (tab === 'home') {
               navigateTo('/');
+            } else if (tab === 'create') {
+              navigateTo('/create');
+            } else {
+              if (route.circleAddress) {
+                navigateTo(`/circle/${route.circleAddress}`);
+              } else {
+                navigateTo('/');
+              }
             }
-          }
-        }}
-      />
+          }}
+        />
+      )}
 
       {/* Main Content Area */}
-      <main className="main-content">
-        {route.tab === 'circle' ? (
+      <main className={route.tab === 'home' ? 'main-content-landing' : 'main-content'}>
+        {route.tab === 'home' ? (
+          <LandingPage
+            onNavigateCreate={() => navigateTo('/create')}
+            onSelectCircle={(addr) => navigateTo(`/circle/${addr}`)}
+          />
+        ) : route.tab === 'circle' ? (
           <CircleView
             circleAddress={route.circleAddress}
             onSelectCircle={(addr) => navigateTo(`/circle/${addr}`)}

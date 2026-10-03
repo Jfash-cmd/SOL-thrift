@@ -5,16 +5,16 @@ import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
 import { ShieldCheck, Copy, Check, ExternalLink } from 'lucide-react';
 
 interface NavbarProps {
-  activeTab: 'circle' | 'create';
-  setActiveTab?: (tab: 'circle' | 'create') => void;
-  onNavigate?: (tab: 'circle' | 'create') => void;
+  activeTab: 'home' | 'circle' | 'create';
+  setActiveTab?: (tab: 'home' | 'circle' | 'create') => void;
+  onNavigate?: (tab: 'home' | 'circle' | 'create') => void;
 }
 
 export const Navbar: FC<NavbarProps> = ({ activeTab, setActiveTab, onNavigate }) => {
   const { publicKey, disconnect, connected } = useWallet();
   const [copied, setCopied] = useState(false);
 
-  const handleNav = (tab: 'circle' | 'create') => {
+  const handleNav = (tab: 'home' | 'circle' | 'create') => {
     if (onNavigate) {
       onNavigate(tab);
     } else if (setActiveTab) {
@@ -38,7 +38,7 @@ export const Navbar: FC<NavbarProps> = ({ activeTab, setActiveTab, onNavigate })
     <header className="site-header">
       <div className="header-container">
         {/* Brand / Logo */}
-        <div className="brand-group" onClick={() => handleNav('circle')} style={{ cursor: 'pointer' }}>
+        <div className="brand-group" onClick={() => handleNav('home')} style={{ cursor: 'pointer' }}>
           <div className="brand-icon">
             <ShieldCheck size={22} className="brand-icon-svg" />
           </div>
