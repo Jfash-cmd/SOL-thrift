@@ -5,6 +5,7 @@ import { Navbar } from './components/Navbar';
 import { CircleView } from './components/CircleView';
 import { CreateCircle } from './components/CreateCircle';
 import { LandingPage } from './components/LandingPage';
+import { PlanetBackdrop } from './components/PlanetBackdrop';
 import { ShieldCheck, BookOpen, ExternalLink } from 'lucide-react';
 
 interface RouteState {
@@ -59,6 +60,9 @@ export const AppContent: FC = () => {
 
   return (
     <div className="app-shell">
+      {/* Fixed Saturn Planetary Backdrop */}
+      <PlanetBackdrop routeTab={route.tab} />
+
       {/* Top Navigation shown on subpages (/circle, /create) */}
       {route.tab !== 'home' && (
         <Navbar
