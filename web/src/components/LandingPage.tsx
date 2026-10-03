@@ -16,6 +16,7 @@ import {
 
 import { getSolthriftProgram } from '../solthriftClient';
 import { SolanaLogo3D } from './SolanaLogo3D';
+import { Reveal } from './Reveal';
 import { parseCircleStatus, formatTokenAmount } from '../types';
 import { isPlaceholderMint, PROGRAM_ID } from '../config';
 
@@ -242,30 +243,36 @@ export const LandingPage: FC<LandingPageProps> = ({
           </div>
 
           {/* Headline */}
-          <h1 className="landing-headline">
-            Save together,
-            <span className="font-serif-italic display-block">without trusting anyone.</span>
-          </h1>
+          <Reveal revealKey="landing-headline">
+            <h1 className="landing-headline">
+              Save together,
+              <span className="font-serif-italic display-block">without trusting anyone.</span>
+            </h1>
+          </Reveal>
 
           {/* Grey Paragraph */}
-          <p className="landing-paragraph">
-            Solthrift is a savings circle on Solana. The program holds the money, pays out in turn, and removes late members. Everyone sees every payment.
-          </p>
+          <Reveal revealKey="landing-paragraph">
+            <p className="landing-paragraph">
+              Solthrift is a savings circle on Solana. The program holds the money, pays out in turn, and removes late members. Everyone sees every payment.
+            </p>
+          </Reveal>
 
           {/* White Pill Button: Create a circle with round arrow icon */}
-          <div className="landing-cta-row">
-            <button
-              type="button"
-              className="landing-cta-btn"
-              onClick={onNavigateCreate}
-              id="landing-create-circle-btn"
-            >
-              <span>Create a circle</span>
-              <span className="arrow-disc" aria-hidden="true">
-                <ArrowRight size={14} />
-              </span>
-            </button>
-          </div>
+          <Reveal revealKey="landing-cta-btn">
+            <div className="landing-cta-row">
+              <button
+                type="button"
+                className="landing-cta-btn"
+                onClick={onNavigateCreate}
+                id="landing-create-circle-btn"
+              >
+                <span>Create a circle</span>
+                <span className="arrow-disc" aria-hidden="true">
+                  <ArrowRight size={14} />
+                </span>
+              </button>
+            </div>
+          </Reveal>
         </div>
 
         {/* Left Panel Footer / Meta */}
@@ -336,7 +343,7 @@ export const LandingPage: FC<LandingPageProps> = ({
         {/* 2-Column Grid of Real Circles */}
         {!loading && !fetchError && circles.length > 0 && (
           <div className="landing-circles-grid" role="feed" aria-label="Available savings circles">
-            {paginatedCircles.map(({ publicKey, account }) => {
+            {paginatedCircles.map(({ publicKey, account }, index) => {
               const addressStr = publicKey.toBase58();
               const shortAddress = `${addressStr.slice(0, 4)}...${addressStr.slice(-4)}`;
               const tokenSymbol = isPlaceholderMint(account.tokenMint) ? 'DEVNET-TOKEN' : 'USDC';
@@ -349,47 +356,52 @@ export const LandingPage: FC<LandingPageProps> = ({
               );
 
               return (
-                <article
+                <Reveal
                   key={addressStr}
-                  className="landing-circle-card"
-                  onClick={() => onSelectCircle(addressStr)}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      onSelectCircle(addressStr);
-                    }
-                  }}
-                  aria-label={`Circle ${shortAddress}`}
+                  revealKey={`landing-circle-card-${addressStr}`}
+                  staggerIndex={index}
                 >
-                  {/* Card Top Row: Token label on left, Timing on right */}
-                  <div className="circle-card-top-row">
-                    <span className="circle-card-token">{tokenSymbol}</span>
-                    <span className="circle-card-timing">{timing}</span>
-                  </div>
-
-                  {/* Card Title: Circle's Short Address */}
-                  <h2 className="circle-card-title">{shortAddress}</h2>
-
-                  {/* Outlined Tag Pills: members, deposit % */}
-                  <div className="card-tags-row">
-                    <span className="card-tag-pill">
-                      {account.membersTarget} members
-                    </span>
-                    <span className="card-tag-pill">
-                      {account.depositPct}% deposit
-                    </span>
-                  </div>
-
-                  {/* Card Bottom: Large number with label "Pot per period" */}
-                  <div className="card-pot-section">
-                    <div className="card-pot-amount">
-                      {potFormatted} <small className="pot-unit">{tokenSymbol}</small>
+                  <article
+                    className="landing-circle-card"
+                    onClick={() => onSelectCircle(addressStr)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        onSelectCircle(addressStr);
+                      }
+                    }}
+                    aria-label={`Circle ${shortAddress}`}
+                  >
+                    {/* Card Top Row: Token label on left, Timing on right */}
+                    <div className="circle-card-top-row">
+                      <span className="circle-card-token">{tokenSymbol}</span>
+                      <span className="circle-card-timing">{timing}</span>
                     </div>
-                    <div className="card-pot-label">Pot per period</div>
-                  </div>
-                </article>
+
+                    {/* Card Title: Circle's Short Address */}
+                    <h2 className="circle-card-title">{shortAddress}</h2>
+
+                    {/* Outlined Tag Pills: members, deposit % */}
+                    <div className="card-tags-row">
+                      <span className="card-tag-pill">
+                        {account.membersTarget} members
+                      </span>
+                      <span className="card-tag-pill">
+                        {account.depositPct}% deposit
+                      </span>
+                    </div>
+
+                    {/* Card Bottom: Large number with label "Pot per period" */}
+                    <div className="card-pot-section">
+                      <div className="card-pot-amount">
+                        {potFormatted} <small className="pot-unit">{tokenSymbol}</small>
+                      </div>
+                      <div className="card-pot-label">Pot per period</div>
+                    </div>
+                  </article>
+                </Reveal>
               );
             })}
           </div>

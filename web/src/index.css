@@ -2633,3 +2633,64 @@ a.btn-secondary,
   }
 }
 
+/* ============================================================================
+   SMOOTH SCROLL-REVEAL EFFECT (Pure CSS & IntersectionObserver)
+   Duration 600ms, cubic-bezier(0.22, 1, 0.36, 1), translateY(20px -> 0)
+   No layout shift, safe fallback after 1.5s
+   ============================================================================ */
+.reveal-wrapper {
+  /* Animate only opacity and transform */
+  transition-property: opacity, transform;
+  transition-duration: 600ms;
+  transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform;
+  min-width: 0;
+}
+
+.reveal-wrapper.is-hidden {
+  opacity: 0;
+  transform: translateY(20px);
+  /* 1.5s safety fallback: show content even if JS observer fails to trigger */
+  animation: revealSafetyFallback 0.01s 1.5s forwards;
+}
+
+.reveal-wrapper.is-revealed {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Ensure grid items reserve space and maintain full cell height without layout shift */
+.landing-circles-grid > .reveal-wrapper,
+.members-grid > .reveal-wrapper {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.landing-circles-grid > .reveal-wrapper > .landing-circle-card,
+.members-grid > .reveal-wrapper > .member-card {
+  height: 100%;
+  flex: 1;
+}
+
+@keyframes revealSafetyFallback {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Respect prefers-reduced-motion: show everything immediately, no movement */
+@media (prefers-reduced-motion: reduce) {
+  .reveal-wrapper,
+  .reveal-wrapper.is-hidden,
+  .reveal-wrapper.is-revealed {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+
+
