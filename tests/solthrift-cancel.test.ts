@@ -39,7 +39,6 @@ function assertEqual(actual: any, expected: any, description: string) {
 /**
  * Sleep helper that loops until Date.now() >= end, yielding CPU via a cheap
  * RPC call (pg.connection.getSlot()) so it does not spin the CPU.
- * Avoids setTimeout which is not defined in Solana Playground.
  */
 async function sleepMs(ms: number): Promise<void> {
   const end = Date.now() + ms;
@@ -191,9 +190,9 @@ async function runCancelTest() {
   console.log(`Minted 200 tokens to Member 3 (tx: ${mint3Tx})`);
 
   // --------------------------------------------------------------------------
-  // Step 2: create_circle with 5 members, deposit_pct 50, contribution 10, open_window 5s
+  // Step 2: create_circle with 5 members, deposit_pct 50, contribution 10, open duration 5s
   // --------------------------------------------------------------------------
-  console.log("\n--- Step 2: create_circle (5 members, open_window 5s) ---");
+  console.log("\n--- Step 2: create_circle (5 members, open duration 5s) ---");
 
   const circleId = new BN(Math.floor(Date.now() / 1000));
   const circleIdBytes = circleId.toArrayLike(Buffer, "le", 8);
@@ -221,7 +220,7 @@ async function runCancelTest() {
   const periodDuration = new BN(120); // 120 seconds
   const graceDuration = new BN(0);
   const fillWindowDuration = new BN(0);
-  const openWindowDuration = new BN(5); // 5 seconds open window
+  const openWindowDuration = new BN(5); // 5 seconds open duration
 
   const createCircleSig = await pg.program.methods
     .createCircle(
@@ -347,7 +346,7 @@ async function runCancelTest() {
   // --------------------------------------------------------------------------
   console.log("\n--- Step 4: Wait 6 seconds and cancelOpenCircle ---");
 
-  console.log("Waiting for open window deadline to pass...");
+  console.log("Waiting for open deadline to pass...");
   const circleBeforeCancel = await fetchWithRetry(
     () => pg.program.account.circle.fetch(circlePda, "confirmed"),
     "Circle account before cancelOpenCircle"
@@ -373,7 +372,7 @@ async function runCancelTest() {
     } catch (err: any) {
       const errStr = err?.toString() || "";
       if (errStr.includes("OpenWindowNotExpired") && attempt < 6) {
-        console.log(`Open window not expired yet on cluster. Retrying in 2s (attempt ${attempt}/6)...`);
+        console.log(`Open deadline not expired yet on cluster. Retrying in 2s (attempt ${attempt}/6)...`);
         await sleepMs(2000);
       } else {
         throw err;

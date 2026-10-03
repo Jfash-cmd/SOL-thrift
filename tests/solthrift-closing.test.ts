@@ -39,7 +39,6 @@ function assertEqual(actual: any, expected: any, description: string) {
 /**
  * Sleep helper that loops until Date.now() >= end, yielding CPU via a cheap
  * RPC call (pg.connection.getSlot()) so it does not spin the CPU.
- * Avoids setTimeout which is not defined in Solana Playground.
  */
 async function sleepMs(ms: number): Promise<void> {
   const end = Date.now() + ms;
