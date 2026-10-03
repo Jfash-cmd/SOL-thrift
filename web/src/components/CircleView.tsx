@@ -23,7 +23,6 @@ import {
   RefreshCw,
   Info,
   Calendar,
-  Layers,
 } from 'lucide-react';
 
 import type { RealCircleData, RealMemberData } from '../types';
@@ -426,9 +425,15 @@ export const CircleView: FC<CircleViewProps> = ({
       {/* Empty State: No address or circle loaded */}
       {!loading && !fetchError && !circle && (
         <div className="empty-view-card">
-          <Layers size={48} className="empty-view-icon" />
-          <h2 style={{ fontSize: '1.4rem', color: 'white' }}>No Circle Selected</h2>
-          <p style={{ color: 'var(--text-muted)', maxWidth: '480px', fontSize: '0.95rem' }}>
+          <div className="circle-emblem-badge" style={{ width: '100px', height: '100px' }} aria-label="Solthrift emblem">
+            <span className="emblem-count">THRIFT</span>
+            <span className="emblem-label">Devnet Savings</span>
+          </div>
+          <h2 style={{ fontSize: '1.9rem', color: 'white', letterSpacing: '-0.02em', textAlign: 'center' }}>
+            Decentralized savings circles,{' '}
+            <span className="font-serif-italic">enforced by code.</span>
+          </h2>
+          <p style={{ color: 'var(--text-body)', maxWidth: '520px', fontSize: '0.95rem' }}>
             Enter a Circle PDA address in the search box above to load real on-chain data from Solana Devnet,
             or create a new savings circle.
           </p>
@@ -484,6 +489,12 @@ export const CircleView: FC<CircleViewProps> = ({
           {/* Header Info Banner */}
           <div className="circle-header-section">
             <div className="circle-header-info">
+              {/* Concentric Circle Emblem Motif echoing reference */}
+              <div className="circle-emblem-badge" aria-label="Circle slots emblem">
+                <span className="emblem-count">{circle.loadedMembers.length}/{circle.membersTarget}</span>
+                <span className="emblem-label">Slots Filled</span>
+              </div>
+
               <div className="circle-badges-row">
                 <span className={`badge-state ${circle.status.toLowerCase()}`}>
                   {circle.status}
@@ -501,7 +512,8 @@ export const CircleView: FC<CircleViewProps> = ({
               </div>
 
               <h1 className="circle-title">
-                Savings Circle #{circle.circleId.toString()}
+                Savings Circle #{circle.circleId.toString()},{' '}
+                <span className="font-serif-italic">on-chain thrift.</span>
               </h1>
 
               <div className="circle-meta" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>

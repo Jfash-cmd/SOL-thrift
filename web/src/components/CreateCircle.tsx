@@ -253,7 +253,10 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
   return (
     <div className="page-container">
       <div className="page-header">
-        <h1 className="page-title">Create a Savings Circle</h1>
+        <h1 className="page-title">
+          Create a savings circle,{' '}
+          <span className="font-serif-italic">with partial deposits.</span>
+        </h1>
         <p className="page-subtitle">
           Configure on-chain rotating thrift (ajo) parameters according to Section 2 of the spec.
           Deposits are partial and program-enforced on Solana Devnet.
