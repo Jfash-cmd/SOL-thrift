@@ -56,7 +56,7 @@ export const Navbar: FC<NavbarProps> = ({ activeTab, setActiveTab, onNavigate })
             onClick={() => handleNav('circle')}
             id="nav-tab-circle"
           >
-            Circle Dashboard
+            Circle
           </button>
           <button
             type="button"
@@ -64,7 +64,7 @@ export const Navbar: FC<NavbarProps> = ({ activeTab, setActiveTab, onNavigate })
             onClick={() => handleNav('create')}
             id="nav-tab-create"
           >
-            Create Circle
+            Create circle
           </button>
         </nav>
 

@@ -22,7 +22,8 @@ import {
   UserPlus,
   RefreshCw,
   Info,
-  Calendar,
+  History,
+  ArrowRight,
 } from 'lucide-react';
 
 import type { RealCircleData, RealMemberData } from '../types';
@@ -40,6 +41,8 @@ import {
   translateProgramError,
 } from '../solthriftClient';
 import { isPlaceholderMint } from '../config';
+import { CircleRing } from './CircleRing';
+import { SolanaLogo3D } from './SolanaLogo3D';
 
 interface CircleViewProps {
   circleAddress?: string | null;
@@ -89,7 +92,7 @@ export const CircleView: FC<CircleViewProps> = ({
       try {
         pubkey = new PublicKey(trimmed);
       } catch {
-        setFetchError(`"${trimmed}" is not a valid Solana public key.`);
+        setFetchError(`The address "${trimmed}" is not a valid Solana public key. Check the address and try again.`);
         setCircle(null);
         return;
       }
@@ -187,10 +190,10 @@ export const CircleView: FC<CircleViewProps> = ({
         console.error('Failed to load on-chain circle:', err);
         const errStr = String(err?.message || err);
         if (errStr.includes('Account does not exist')) {
-          setFetchError(`Circle account not found on Solana Devnet at address: ${trimmed}`);
+          setFetchError(`Circle account not found on Solana devnet at address ${trimmed}. Verify the address or create a new circle.`);
         } else {
           const translated = translateProgramError(err);
-          setFetchError(`Failed to load circle: ${translated.message}`);
+          setFetchError(`Failed to load circle: ${translated.message}. Check your network connection.`);
         }
         setCircle(null);
       } finally {
@@ -233,7 +236,7 @@ export const CircleView: FC<CircleViewProps> = ({
     setTimeout(() => setCopiedMemberIdx(null), 2000);
   };
 
-  // Format token symbol
+  // Token symbol display
   const tokenSymbol =
     circle && isPlaceholderMint(circle.tokenMint)
       ? 'DEVNET-TOKEN'
@@ -241,6 +244,7 @@ export const CircleView: FC<CircleViewProps> = ({
 
   // Section 6 Join Calculations
   const isCircleOpen = circle?.status === 'Open';
+  const isCircleActive = circle?.status === 'Active';
   const nextSlot = circle ? circle.currentMemberCount + 1 : 1;
   const isCircleFull = circle ? circle.currentMemberCount >= circle.membersTarget : false;
 
@@ -250,7 +254,7 @@ export const CircleView: FC<CircleViewProps> = ({
       : null;
   const isAlreadyMember = !!userMember;
 
-  // Compute deposit for the next slot using Section 6 formula
+  // Compute deposit for next slot using Section 6 formula
   const requiredDepositBN =
     circle && isCircleOpen && !isCircleFull
       ? calculateSlotDepositBN(nextSlot, circle.membersTarget, circle.contribution, circle.depositPct)
@@ -265,9 +269,9 @@ export const CircleView: FC<CircleViewProps> = ({
 
   const owedPeriods = circle ? circle.membersTarget - nextSlot : 0;
 
-  // Determine next payout recipient in Active round
+  // Determine recipient member
   const currentPeriodRecipientSlot =
-    circle && circle.status === 'Active' && circle.currentPeriod >= 1 && circle.currentPeriod <= circle.orderLen
+    circle && isCircleActive && circle.currentPeriod >= 1 && circle.currentPeriod <= circle.orderLen
       ? circle.payoutOrder[circle.currentPeriod - 1]
       : null;
 
@@ -281,30 +285,30 @@ export const CircleView: FC<CircleViewProps> = ({
    */
   const handleJoinCircle = async () => {
     if (!connected || !publicKey) {
-      setTxError('Please connect your Solana wallet to join.');
+      setTxError('Wallet not connected. Connect your wallet to proceed.');
       return;
     }
     if (!circle) return;
 
     if (isAlreadyMember) {
-      setTxError(`You are already a member of this circle in Slot #${userMember?.slot}.`);
+      setTxError(`Already a member in slot ${userMember?.slot}.`);
       return;
     }
 
     if (isCircleFull) {
-      setTxError('This circle has reached maximum member capacity.');
+      setTxError('Circle has reached maximum member capacity.');
       return;
     }
 
     if (isPlaceholderMint(circle.tokenMint)) {
       setTxError(
-        'Circle was initialized with placeholder token mint 11111111111111111111111111111111. Please provide a real SPL Token Mint on Devnet in config.ts.'
+        'Circle token mint is not configured. Provide an SPL token mint on devnet.'
       );
       return;
     }
 
     setTxPending(true);
-    setTxPendingMsg('Preparing Associated Token Account & submitting joinCircle to Devnet...');
+    setTxPendingMsg('Joining circle...');
     setTxError(null);
     setTxSuccess(null);
 
@@ -343,7 +347,7 @@ export const CircleView: FC<CircleViewProps> = ({
       const sig = await method.rpc();
       setTxSuccess({
         signature: sig,
-        message: `Successfully joined circle! Assigned Slot #${nextSlot}. Deposit of ${formattedDeposit} ${tokenSymbol} locked in vault.`,
+        message: `Joined circle as slot ${nextSlot}. Locked deposit of ${formattedDeposit} ${tokenSymbol} in vault.`,
       });
 
       // Refetch latest circle and member accounts from chain
@@ -360,95 +364,40 @@ export const CircleView: FC<CircleViewProps> = ({
 
   return (
     <div className="page-container">
-      {/* Top Address Search & Lookup Card */}
-      <section className="circle-search-card" aria-label="Load Circle by Address">
+      {/* Search Bar */}
+      <section className="circle-search-card" aria-label="Load circle by address">
         <form onSubmit={handleSearchSubmit} className="circle-search-row">
           <div className="circle-search-input-wrap">
             <Search size={16} className="search-input-icon" />
             <input
               type="text"
               className="circle-search-input"
-              placeholder="Enter Circle PDA address on Solana Devnet (e.g., CfY1M7...)"
+              placeholder="Enter circle address on Solana devnet"
               value={inputAddress}
               onChange={(e) => setInputAddress(e.target.value)}
-              aria-label="Circle PDA Address"
+              aria-label="Circle address"
             />
           </div>
           <button type="submit" className="search-btn" disabled={loading}>
             {loading ? <Loader2 size={15} className="spinner-icon" /> : <Search size={15} />}
-            Load Circle
+            Load circle
           </button>
           <button
             type="button"
             className="btn-secondary"
             onClick={onNavigateCreate}
-            style={{ padding: '0.65rem 1rem', fontSize: '0.85rem' }}
           >
             <UserPlus size={15} />
-            Create Circle
+            Create circle
           </button>
         </form>
       </section>
 
-      {/* Wallet Not Connected Global Warning */}
-      {!connected && (
-        <div className="alert-box warning-alert" role="status">
-          <AlertTriangle size={18} />
-          <span>
-            Wallet not connected. Connect your Solana Devnet wallet in the top bar to join or interact with this savings circle.
-          </span>
-        </div>
-      )}
-
-      {/* Loading State */}
-      {loading && (
-        <div className="loading-view-card">
-          <Loader2 size={36} className="loading-spinner-large" />
-          <h2 style={{ fontSize: '1.2rem', color: 'white' }}>Fetching Real On-Chain Circle Data</h2>
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-            Reading Circle account and Member PDAs directly from Solana Devnet RPC...
-          </p>
-        </div>
-      )}
-
-      {/* Fetch Error State */}
-      {!loading && fetchError && (
-        <div className="alert-box error-alert" role="alert">
-          <AlertTriangle size={20} />
-          <div>
-            <strong>Unable to Load Circle</strong>
-            <p style={{ marginTop: '0.25rem', fontSize: '0.9rem' }}>{fetchError}</p>
-          </div>
-        </div>
-      )}
-
-      {/* Empty State: No address or circle loaded */}
-      {!loading && !fetchError && !circle && (
-        <div className="empty-view-card">
-          <div className="circle-emblem-badge" style={{ width: '100px', height: '100px' }} aria-label="Solthrift emblem">
-            <span className="emblem-count">THRIFT</span>
-            <span className="emblem-label">Devnet Savings</span>
-          </div>
-          <h2 style={{ fontSize: '1.9rem', color: 'white', letterSpacing: '-0.02em', textAlign: 'center' }}>
-            Decentralized savings circles,{' '}
-            <span className="font-serif-italic">enforced by code.</span>
-          </h2>
-          <p style={{ color: 'var(--text-body)', maxWidth: '520px', fontSize: '0.95rem' }}>
-            Enter a Circle PDA address in the search box above to load real on-chain data from Solana Devnet,
-            or create a new savings circle.
-          </p>
-          <button type="button" className="btn-primary" onClick={onNavigateCreate}>
-            <UserPlus size={16} />
-            Create a New Circle
-          </button>
-        </div>
-      )}
-
-      {/* Transaction Notifications */}
+      {/* Global Notifications */}
       {txPending && (
         <div className="alert-box pending-alert" role="status">
           <Loader2 size={18} className="spinner-icon" />
-          <span>{txPendingMsg || 'Transaction pending on Solana Devnet. Please approve in your wallet...'}</span>
+          <span>{txPendingMsg || 'Transaction pending on Solana devnet. Approve in your wallet.'}</span>
         </div>
       )}
 
@@ -459,12 +408,12 @@ export const CircleView: FC<CircleViewProps> = ({
             <strong>{txSuccess.message}</strong>
           </div>
           <div style={{ fontSize: '0.85rem' }}>
-            Transaction Signature:{' '}
+            Transaction signature:{' '}
             <a
               href={getExplorerUrl('tx', txSuccess.signature)}
               target="_blank"
               rel="noreferrer"
-              style={{ color: 'var(--accent-cyan)', textDecoration: 'underline', fontFamily: 'monospace' }}
+              style={{ color: '#ffffff', textDecoration: 'underline', fontFamily: 'monospace' }}
             >
               {txSuccess.signature.slice(0, 16)}...{txSuccess.signature.slice(-16)}
               <ExternalLink size={12} style={{ display: 'inline', marginLeft: '4px' }} />
@@ -477,239 +426,296 @@ export const CircleView: FC<CircleViewProps> = ({
         <div className="alert-box error-alert" role="alert">
           <AlertTriangle size={18} />
           <div>
-            <strong>Transaction Failed:</strong>
+            <strong>Action failed</strong>
             <p style={{ marginTop: '0.2rem', fontSize: '0.9rem' }}>{txError}</p>
           </div>
         </div>
       )}
 
-      {/* REAL CIRCLE CONTENT */}
-      {!loading && circle && (
-        <>
-          {/* Header Info Banner */}
-          <div className="circle-header-section">
-            <div className="circle-header-info">
-              {/* Concentric Circle Emblem Motif echoing reference */}
-              <div className="circle-emblem-badge" aria-label="Circle slots emblem">
-                <span className="emblem-count">{circle.loadedMembers.length}/{circle.membersTarget}</span>
-                <span className="emblem-label">Slots Filled</span>
+      {/* Loading View */}
+      {loading && (
+        <div className="loading-view-card">
+          <Loader2 size={36} className="loading-spinner-large" />
+          <h2 style={{ fontSize: '1.25rem', color: 'white' }}>Fetching on-chain circle data</h2>
+          <p style={{ color: 'var(--text-body)', fontSize: '0.9rem' }}>
+            Reading circle account and member accounts from Solana devnet.
+          </p>
+        </div>
+      )}
+
+      {/* Fetch Error State */}
+      {!loading && fetchError && (
+        <div className="alert-box error-alert" role="alert">
+          <AlertTriangle size={20} />
+          <div>
+            <strong>Unable to load circle</strong>
+            <p style={{ marginTop: '0.25rem', fontSize: '0.9rem' }}>{fetchError}</p>
+          </div>
+        </div>
+      )}
+
+      {/* EMPTY / LANDING STATE: SPLIT LAYOUT */}
+      {!loading && !fetchError && !circle && (
+        <div className="landing-split-layout">
+          {/* Left Hero Card */}
+          <div className="glass-panel" style={{ padding: '2.5rem 2rem' }}>
+            <div className="circle-emblem-badge" style={{ width: '92px', height: '92px', marginBottom: '1.25rem' }}>
+              <SolanaLogo3D size={44} />
+            </div>
+
+            <h1 className="page-title" style={{ fontSize: '2.4rem', lineHeight: '1.15' }}>
+              Save together,{' '}
+              <span className="font-serif-italic">without trusting anyone.</span>
+            </h1>
+
+            <p style={{ color: 'var(--text-body)', fontSize: '0.95rem', margin: '1rem 0 1.75rem', lineHeight: '1.6' }}>
+              Decentralized rotating savings circles on Solana. Code enforces contribution deadlines,
+              payout turns, and collateral deposits without intermediaries.
+            </p>
+
+            <button type="button" className="btn-primary" onClick={onNavigateCreate}>
+              Create circle
+              <ArrowRight size={16} />
+            </button>
+          </div>
+
+          {/* Right Explainer / Lookup Card */}
+          <div className="card" style={{ padding: '2.25rem 2rem' }}>
+            <h2 className="card-title" style={{ fontSize: '1.25rem' }}>
+              How rotating thrift works
+            </h2>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1rem' }}>
+              <div style={{ display: 'flex', gap: '0.85rem' }}>
+                <span className="slot-badge-circle" style={{ width: '28px', height: '28px', fontSize: '0.75rem', flexShrink: 0 }}>1</span>
+                <div>
+                  <strong style={{ color: '#ffffff', fontSize: '0.9rem', display: 'block' }}>Join order sets payout turn</strong>
+                  <span style={{ fontSize: '0.825rem', color: 'var(--text-body)' }}>
+                    Members join in sequence. Join order determines which round you receive the full pot.
+                  </span>
+                </div>
               </div>
 
-              <div className="circle-badges-row">
+              <div style={{ display: 'flex', gap: '0.85rem' }}>
+                <span className="slot-badge-circle" style={{ width: '28px', height: '28px', fontSize: '0.75rem', flexShrink: 0 }}>2</span>
+                <div>
+                  <strong style={{ color: '#ffffff', fontSize: '0.9rem', display: 'block' }}>Partial deposit covers defaults</strong>
+                  <span style={{ fontSize: '0.825rem', color: 'var(--text-body)' }}>
+                    Members lock an upfront deposit scaled to future dues. Defaulting members forfeit their deposit.
+                  </span>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.85rem' }}>
+                <span className="slot-badge-circle" style={{ width: '28px', height: '28px', fontSize: '0.75rem', flexShrink: 0 }}>3</span>
+                <div>
+                  <strong style={{ color: '#ffffff', fontSize: '0.9rem', display: 'block' }}>Automated on-chain execution</strong>
+                  <span style={{ fontSize: '0.825rem', color: 'var(--text-body)' }}>
+                    Anyone can trigger payout once contributions arrive or trigger removal if grace expires.
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ marginTop: '1.5rem', paddingTop: '1.25rem', borderTop: '1px solid var(--glass-border-subtle)' }}>
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                Have an existing circle address? Paste it in the top search bar to inspect live on-chain state.
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* REAL CIRCLE CONTENT: SPLIT LAYOUT */}
+      {!loading && circle && (
+        <div className="circle-layout-split">
+          {/* LEFT COLUMN: THE RING PANEL */}
+          <div className="circle-layout-left">
+            <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                 <span className={`badge-state ${circle.status.toLowerCase()}`}>
                   {circle.status}
                 </span>
                 <span className="badge-pill">
-                  {circle.status === 'Open'
-                    ? `Open (${circle.currentMemberCount} / ${circle.membersTarget} Slots Filled)`
-                    : `Period ${circle.currentPeriod} of ${circle.orderLen || circle.membersTarget}`}
-                </span>
-                <span className="badge-pill">{tokenSymbol}</span>
-                <span className="badge-pill">Deposit: {circle.depositPct}%</span>
-                <span className="badge-pill">
-                  Contribution: {formattedContribution} {tokenSymbol}
+                  {circle.depositPct}% deposit
                 </span>
               </div>
 
-              <h1 className="circle-title">
-                Savings Circle #{circle.circleId.toString()},{' '}
-                <span className="font-serif-italic">on-chain thrift.</span>
-              </h1>
+              {/* The SVG Ring */}
+              <CircleRing
+                circle={circle}
+                members={circle.loadedMembers}
+                tokenSymbol={tokenSymbol}
+                tokenDecimals={tokenDecimals}
+              />
 
-              <div className="circle-meta" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
-                <span>Circle PDA:</span>
-                <code>{circle.address.toBase58()}</code>
-                <button
-                  type="button"
-                  className="icon-action-btn"
-                  onClick={handleCopyCircle}
-                  title="Copy Circle Address"
-                >
-                  {copiedCircle ? <Check size={14} className="text-green" /> : <Copy size={14} />}
-                </button>
-                <a
-                  href={getExplorerUrl('address', circle.address.toBase58())}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="icon-action-btn"
-                  title="View Circle on Solana Explorer"
-                >
-                  <ExternalLink size={14} />
-                </a>
-                <button
-                  type="button"
-                  className="icon-action-btn"
-                  onClick={() => loadCircleData(circle.address.toBase58())}
-                  title="Refresh on-chain data"
-                  style={{ marginLeft: 'auto' }}
-                >
-                  <RefreshCw size={14} />
-                </button>
+              {/* Ring Subtext & Address Info */}
+              <div style={{ width: '100%', marginTop: '1.5rem', paddingTop: '1.25rem', borderTop: '1px solid var(--glass-border-subtle)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.825rem', marginBottom: '0.5rem' }}>
+                  <span style={{ color: 'var(--text-muted)' }}>Contribution</span>
+                  <strong style={{ color: '#ffffff' }}>{formattedContribution} {tokenSymbol} / period</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.825rem', marginBottom: '0.5rem' }}>
+                  <span style={{ color: 'var(--text-muted)' }}>Active members</span>
+                  <strong style={{ color: '#ffffff' }}>{circle.activeMemberCount} of {circle.membersTarget}</strong>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.75rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                  <span style={{ fontFamily: 'var(--font-mono)' }}>
+                    {circle.address.toBase58().slice(0, 6)}...{circle.address.toBase58().slice(-6)}
+                  </span>
+                  <div style={{ display: 'flex', gap: '0.25rem' }}>
+                    <button
+                      type="button"
+                      className="icon-action-btn"
+                      onClick={handleCopyCircle}
+                      title="Copy circle address"
+                    >
+                      {copiedCircle ? <Check size={14} className="text-green" /> : <Copy size={14} />}
+                    </button>
+                    <a
+                      href={getExplorerUrl('address', circle.address.toBase58())}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="icon-action-btn"
+                      title="View circle on explorer"
+                    >
+                      <ExternalLink size={14} />
+                    </a>
+                    <button
+                      type="button"
+                      className="icon-action-btn"
+                      onClick={() => loadCircleData(circle.address.toBase58())}
+                      title="Refresh data"
+                    >
+                      <RefreshCw size={14} />
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
 
-          {/* Section 6: Join Circle Card (Active when Open & has capacity) */}
-          {isCircleOpen && (
-            <div className="card join-card" aria-labelledby="join-heading">
-              <div className="join-card-header">
-                <div>
-                  <h2 id="join-heading" className="card-title" style={{ margin: 0 }}>
-                    <UserPlus size={18} className="text-accent" />
-                    Join Savings Circle (Slot #{nextSlot} of {circle.membersTarget})
-                  </h2>
-                  <p className="card-desc" style={{ margin: '0.25rem 0 0 0' }}>
-                    Calculate your locked security deposit per Section 6 of the spec and join the on-chain thrift.
-                  </p>
-                </div>
-                <span className="badge-spec">Section 6 Formula</span>
+          {/* RIGHT COLUMN: ACTIONS, MEMBERS & ACTIVITY */}
+          <div className="circle-layout-right" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            {/* Header Title Card */}
+            <div className="glass-panel" style={{ padding: '1.5rem 1.75rem' }}>
+              <div className="circle-badges-row" style={{ marginBottom: '0.5rem' }}>
+                <span className="badge-pill">
+                  {isCircleOpen
+                    ? `${circle.currentMemberCount} of ${circle.membersTarget} seats filled`
+                    : `Period ${circle.currentPeriod} of ${circle.orderLen || circle.membersTarget}`}
+                </span>
+                <span className="badge-pill">{tokenSymbol}</span>
               </div>
+              <h1 className="circle-title" style={{ fontSize: '1.85rem' }}>
+                Savings circle #{circle.circleId.toString()},{' '}
+                <span className="font-serif-italic">on-chain thrift.</span>
+              </h1>
+              <p style={{ color: 'var(--text-body)', fontSize: '0.875rem', marginTop: '0.25rem' }}>
+                Rules enforced by program CfY1M7cdgv1AvkLPuquqbCPNxMz73icdukWQP2sKdPq4 on Solana devnet.
+              </p>
+            </div>
 
-              {/* Section 6 Formula Breakdown */}
-              <div className="deposit-math-box">
-                <div className="formula-header">
-                  <Info size={14} />
-                  <span>Section 6 Security Deposit Formula</span>
-                </div>
-                <div className="formula-expression">
-                  deposit = max(ceil(deposit_pct * (N - k) * c / 100), c)
-                </div>
-
-                <div className="formula-breakdown-list">
-                  <div className="formula-breakdown-item">
-                    <span>Deposit Rate (deposit_pct):</span>
-                    <strong>{circle.depositPct}%</strong>
+            {/* ACTION PANEL 1: JOIN CARD (when Open) */}
+            {isCircleOpen && (
+              <div className="card join-card" aria-labelledby="join-heading">
+                <div className="join-card-header">
+                  <div>
+                    <h2 id="join-heading" className="card-title" style={{ margin: 0 }}>
+                      Join circle
+                    </h2>
+                    <p className="card-desc" style={{ margin: '0.25rem 0 0 0' }}>
+                      Joining assigns slot {nextSlot} of {circle.membersTarget} and locks collateral upfront.
+                    </p>
                   </div>
-                  <div className="formula-breakdown-item">
-                    <span>Target Total Members (N):</span>
-                    <strong>{circle.membersTarget} members</strong>
-                  </div>
-                  <div className="formula-breakdown-item">
-                    <span>Assigned Join Slot (k):</span>
-                    <strong>Slot #{nextSlot}</strong>
-                  </div>
-                  <div className="formula-breakdown-item">
-                    <span>Owed Periods Remaining (N - k):</span>
-                    <strong>
-                      {circle.membersTarget} - {nextSlot} = {owedPeriods} periods
-                    </strong>
-                  </div>
-                  <div className="formula-breakdown-item">
-                    <span>Periodic Contribution (c):</span>
-                    <strong>
-                      {formattedContribution} {tokenSymbol}
-                    </strong>
-                  </div>
+                  <span className="badge-spec">Section 6 deposit</span>
                 </div>
 
-                <div className="deposit-total-row">
-                  <span>Required Locked Deposit Upfront:</span>
-                  <span className="deposit-total-amount">
-                    {formattedDeposit} {tokenSymbol}
-                  </span>
-                </div>
-              </div>
-
-              {/* Join Action Buttons / States */}
-              <div>
-                {!connected ? (
-                  <div className="alert-box warning-alert" style={{ marginBottom: 0 }}>
-                    <AlertTriangle size={16} />
-                    <span>Connect your wallet above to join this circle as Slot #{nextSlot}.</span>
+                {/* Section 6 Formula Breakdown */}
+                <div className="deposit-math-box">
+                  <div className="formula-header">
+                    <Info size={14} />
+                    <span>Deposit calculation</span>
                   </div>
-                ) : isAlreadyMember ? (
-                  <div className="alert-box success-alert" style={{ marginBottom: 0 }}>
-                    <CheckCircle size={16} />
-                    <span>
-                      You are already registered in this circle (Slot #{userMember?.slot}). Payout turn is scheduled on-chain.
+                  <div className="formula-expression">
+                    deposit = max(ceil(deposit_pct * (N - k) * c / 100), c)
+                  </div>
+
+                  <div className="formula-breakdown-list">
+                    <div className="formula-breakdown-item">
+                      <span>Assigned join slot (k)</span>
+                      <strong>Slot {nextSlot}</strong>
+                    </div>
+                    <div className="formula-breakdown-item">
+                      <span>Owed periods remaining (N - k)</span>
+                      <strong>{circle.membersTarget} - {nextSlot} = {owedPeriods}</strong>
+                    </div>
+                    <div className="formula-breakdown-item">
+                      <span>Periodic contribution (c)</span>
+                      <strong>{formattedContribution} {tokenSymbol}</strong>
+                    </div>
+                  </div>
+
+                  <div className="deposit-total-row">
+                    <span>Deposit to lock</span>
+                    <span className="deposit-total-amount">
+                      {formattedDeposit} {tokenSymbol}
                     </span>
                   </div>
-                ) : isCircleFull ? (
-                  <div className="alert-box warning-alert" style={{ marginBottom: 0 }}>
-                    <AlertTriangle size={16} />
-                    <span>This circle has reached full capacity ({circle.membersTarget} of {circle.membersTarget} members).</span>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    id="join-circle-btn"
-                    className="btn-join-circle"
-                    disabled={txPending}
-                    onClick={handleJoinCircle}
-                  >
-                    {txPending ? (
-                      <>
-                        <Loader2 size={18} className="spinner-icon" />
-                        Joining Circle on Devnet...
-                      </>
-                    ) : (
-                      <>
-                        <UserPlus size={18} />
-                        Join Circle as Slot #{nextSlot} (Lock {formattedDeposit} {tokenSymbol})
-                      </>
-                    )}
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
+                </div>
 
-          {/* Main Dashboard Stats: Current Pot & Next Recipient */}
-          <div className="circle-dashboard-grid">
-            <div className="card hero-stat-card">
-              <div className="hero-stat-row">
+                {/* Join Button */}
                 <div>
-                  <span className="hero-stat-label">
-                    {circle.status === 'Open' ? 'Current Period Pot (Starts on Fill)' : 'Current Period Pot'}
-                  </span>
-                  <div className="hero-stat-amount">
-                    {circle.status === 'Open'
-                      ? '0'
-                      : formatTokenAmount(
-                          circle.contribution.muln(circle.contributionsThisPeriod),
-                          tokenDecimals
-                        )}{' '}
-                    <span className="stat-currency">{tokenSymbol}</span>
-                  </div>
-                  <small className="stat-subtext">
-                    Target Pot: {formatTokenAmount(circle.contribution.muln(circle.membersTarget), tokenDecimals)} {tokenSymbol} •{' '}
-                    {circle.activeMemberCount} Active Members
-                  </small>
-                </div>
-
-                <div className="countdown-card" aria-label="Circle status indicator">
-                  <div className="countdown-header">
-                    <Calendar size={16} className="text-accent" />
-                    <span>Round Status</span>
-                  </div>
-                  <div style={{ marginTop: '0.5rem', fontSize: '0.95rem', fontWeight: 600, color: 'white' }}>
-                    {circle.status === 'Open' ? (
-                      <span>Waiting for {circle.membersTarget - circle.currentMemberCount} more member(s)</span>
-                    ) : circle.status === 'Active' ? (
-                      <span>Period {circle.currentPeriod} of {circle.orderLen} in Progress</span>
-                    ) : (
-                      <span>Round Status: {circle.status}</span>
-                    )}
-                  </div>
-                  <div className="countdown-grace" style={{ marginTop: '0.5rem' }}>
-                    Vault PDA: <code>{circle.vault.toBase58().slice(0, 8)}...</code>
-                  </div>
+                  {!connected ? (
+                    <div className="alert-box warning-alert">
+                      <AlertTriangle size={16} />
+                      <span>Connect your wallet above to join this circle as slot {nextSlot}.</span>
+                    </div>
+                  ) : isAlreadyMember ? (
+                    <div className="alert-box success-alert">
+                      <CheckCircle size={16} />
+                      <span>You are registered in this circle as slot {userMember?.slot}. Payout turn is scheduled on-chain.</span>
+                    </div>
+                  ) : isCircleFull ? (
+                    <div className="alert-box warning-alert">
+                      <AlertTriangle size={16} />
+                      <span>This circle has reached full capacity ({circle.membersTarget} members).</span>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      id="join-circle-btn"
+                      className="btn-primary"
+                      style={{ width: '100%' }}
+                      disabled={txPending}
+                      onClick={handleJoinCircle}
+                    >
+                      {txPending ? (
+                        <>
+                          <Loader2 size={16} className="spinner-icon" />
+                          Joining circle...
+                        </>
+                      ) : (
+                        <>
+                          Join circle
+                        </>
+                      )}
+                    </button>
+                  )}
                 </div>
               </div>
-            </div>
+            )}
 
-            {/* Section 9: Next Step Protocol Triggers (Disabled for this step) */}
+            {/* ACTION PANEL 2: TRIGGER BUTTONS (Next Step buttons) */}
             <div className="card triggers-card" aria-labelledby="triggers-title">
               <div className="triggers-header">
                 <h2 id="triggers-title" className="card-title">
-                  Section 9: Protocol Actions
+                  Protocol actions
                 </h2>
-                <span className="badge-pill" style={{ color: 'var(--accent-amber)' }}>
-                  Next Step (Disabled)
-                </span>
+                <span className="badge-pill">Next step</span>
               </div>
               <p className="card-desc">
-                Contribute, Payout, and Defaulter triggers will be fully wired for live execution in the next step.
+                Contribute, payout, and defaulter triggers will execute on-chain transactions in the next step.
               </p>
 
               <div className="triggers-action-list">
@@ -719,14 +725,13 @@ export const CircleView: FC<CircleViewProps> = ({
                     type="button"
                     className="trigger-action-btn btn-disabled"
                     disabled
-                    title="Will be enabled in next step"
                   >
                     <Coins size={16} />
-                    Contribute {formattedContribution} {tokenSymbol} (Next Step)
+                    Contribute {formattedContribution} {tokenSymbol}
                   </button>
                   <div className="trigger-status-reason">
                     <span className="reason-text disabled">
-                      <Clock size={13} /> Next step: Active members submit periodic contribution
+                      <Clock size={13} /> Active members submit periodic contribution
                     </span>
                   </div>
                 </div>
@@ -737,14 +742,13 @@ export const CircleView: FC<CircleViewProps> = ({
                     type="button"
                     className="trigger-action-btn btn-disabled"
                     disabled
-                    title="Will be enabled in next step"
                   >
                     <Coins size={16} />
-                    Pay out to {nextRecipientMember ? `Slot #${nextRecipientMember.slot}` : '[Next Recipient]'} (Next Step)
+                    Pay out to {nextRecipientMember ? `slot ${nextRecipientMember.slot}` : 'next recipient'}
                   </button>
                   <div className="trigger-status-reason">
                     <span className="reason-text disabled">
-                      <Clock size={13} /> Next step: Callable once period contributions reach target or deadline passes
+                      <Clock size={13} /> Callable once period contributions reach target or deadline passes
                     </span>
                   </div>
                 </div>
@@ -755,170 +759,196 @@ export const CircleView: FC<CircleViewProps> = ({
                     type="button"
                     className="trigger-action-btn btn-disabled"
                     disabled
-                    title="Will be enabled in next step"
                   >
                     <ShieldAlert size={16} />
-                    Remove late member (Next Step)
+                    Remove late member
                   </button>
                   <div className="trigger-status-reason">
                     <span className="reason-text disabled">
-                      <Clock size={13} /> Next step: Callable after period duration + grace expires against late members
+                      <Clock size={13} /> Callable after period duration and grace expire against late members
                     </span>
                   </div>
                 </div>
               </div>
             </div>
-          </div>
 
-          {/* Members Lineup & Status (Who Paid, Who Is Next, Who Was Removed) */}
-          <section className="card members-section" aria-labelledby="members-heading">
-            <div className="card-header-row">
-              <div>
-                <h2 id="members-heading" className="card-title">
-                  Circle Members & Lineup ({circle.loadedMembers.length} / {circle.membersTarget} Slots Registered)
-                </h2>
-                <p className="card-desc">
-                  Real on-chain Member accounts. Transparent records of deposit balances, payment turns, and removal statuses.
-                </p>
+            {/* MEMBERS LINEUP SECTION */}
+            <section className="card members-section" aria-labelledby="members-heading">
+              <div className="card-header-row">
+                <div>
+                  <h2 id="members-heading" className="card-title">
+                    Circle members ({circle.loadedMembers.length} of {circle.membersTarget} slots)
+                  </h2>
+                  <p className="card-desc" style={{ margin: 0 }}>
+                    Transparent on-chain records of deposit balances, payment turns, and removal statuses.
+                  </p>
+                </div>
+                <div className="legend-pills">
+                  <span className="legend-item"><span className="legend-dot green"></span> Paid</span>
+                  <span className="legend-item"><span className="legend-dot purple"></span> Next recipient</span>
+                  <span className="legend-item"><span className="legend-dot red"></span> Removed</span>
+                </div>
               </div>
-              <div className="legend-pills">
-                <span className="legend-item">
-                  <span className="legend-dot green"></span> Paid
-                </span>
-                <span className="legend-item">
-                  <span className="legend-dot purple"></span> Next Recipient
-                </span>
-                <span className="legend-item">
-                  <span className="legend-dot red"></span> Removed
-                </span>
-              </div>
-            </div>
 
-            <div className="members-grid">
-              {circle.loadedMembers.map((member, idx) => {
-                const isRemoved = member.status === 'Removed';
-                const isRecipient =
-                  circle.status === 'Active' &&
-                  currentPeriodRecipientSlot === member.slot &&
-                  member.status === 'Active';
-                const hasPaidThisPeriod =
-                  circle.status === 'Active' &&
-                  member.lastContributedPeriod === circle.currentPeriod;
+              <div className="members-grid">
+                {circle.loadedMembers.map((member, idx) => {
+                  const isRemoved = member.status === 'Removed';
+                  const isRecipient =
+                    isCircleActive &&
+                    currentPeriodRecipientSlot === member.slot &&
+                    member.status === 'Active';
+                  const hasPaidThisPeriod =
+                    isCircleActive &&
+                    member.lastContributedPeriod === circle.currentPeriod;
 
-                const shortened = `${member.wallet.toBase58().slice(0, 4)}...${member.wallet.toBase58().slice(-4)}`;
+                  const shortened = `${member.wallet.toBase58().slice(0, 4)}...${member.wallet.toBase58().slice(-4)}`;
 
-                return (
-                  <div
-                    key={member.slot}
-                    className={`member-card ${isRecipient ? 'card-recipient' : ''} ${
-                      isRemoved ? 'card-removed' : ''
-                    }`}
-                  >
-                    <div className="member-card-header">
-                      <div className="slot-badge-circle">#{member.slot}</div>
-                      <div className="member-title-col">
-                        <div className="member-display-name">
-                          <span>Slot #{member.slot}</span>
-                          {member.slot === 1 && <span className="tag-creator">Creator</span>}
-                          {isRecipient && <span className="tag-recipient">Next Pot</span>}
-                          {member.hasBeenPaid && !isRecipient && (
-                            <span className="tag-paidout">Paid Out</span>
+                  return (
+                    <div
+                      key={member.slot}
+                      className={`member-card ${isRecipient ? 'card-recipient' : ''} ${
+                        isRemoved ? 'card-removed' : ''
+                      }`}
+                    >
+                      <div className="member-card-header">
+                        <div className="slot-badge-circle">#{member.slot}</div>
+                        <div className="member-title-col">
+                          <div className="member-display-name">
+                            <span>Slot {member.slot}</span>
+                            {member.slot === 1 && <span className="tag-creator">Creator</span>}
+                            {isRecipient && <span className="tag-recipient">Next pot</span>}
+                            {member.hasBeenPaid && !isRecipient && (
+                              <span className="tag-paidout">Paid out</span>
+                            )}
+                          </div>
+                          <div className="member-wallet-row">
+                            <Wallet size={12} />
+                            <span className="member-wallet" title={member.wallet.toBase58()}>
+                              {shortened}
+                            </span>
+                            <button
+                              type="button"
+                              className="icon-action-btn"
+                              onClick={() => handleCopyMemberWallet(member.wallet, idx)}
+                              title="Copy wallet address"
+                            >
+                              {copiedMemberIdx === idx ? (
+                                <Check size={12} className="text-green" />
+                              ) : (
+                                <Copy size={12} />
+                              )}
+                            </button>
+                            <a
+                              href={getExplorerUrl('address', member.wallet.toBase58())}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="explorer-link"
+                              title="View wallet on explorer"
+                            >
+                              <ExternalLink size={12} />
+                            </a>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="member-card-body">
+                        {/* Period Status (Who Paid) */}
+                        <div className="member-info-row">
+                          <span className="info-label">
+                            {isCircleOpen ? 'Join status' : `Period ${circle.currentPeriod} status`}
+                          </span>
+                          {isRemoved ? (
+                            <span className="badge-status removed">
+                              <XCircle size={13} /> Removed
+                            </span>
+                          ) : isCircleOpen ? (
+                            <span className="badge-status joined">
+                              <CheckCircle size={13} /> Joined (deposit locked)
+                            </span>
+                          ) : hasPaidThisPeriod ? (
+                            <span className="badge-status paid">
+                              <CheckCircle size={13} /> Paid ({formattedContribution} {tokenSymbol})
+                            </span>
+                          ) : (
+                            <span className="badge-status pending">
+                              <Clock size={13} /> Pending
+                            </span>
                           )}
                         </div>
-                        <div className="member-wallet-row">
-                          <Wallet size={12} />
-                          <span className="member-wallet" title={member.wallet.toBase58()}>
-                            {shortened}
-                          </span>
-                          <button
-                            type="button"
-                            className="icon-action-btn"
-                            onClick={() => handleCopyMemberWallet(member.wallet, idx)}
-                            title="Copy Wallet Public Key"
-                          >
-                            {copiedMemberIdx === idx ? (
-                              <Check size={12} className="text-green" />
-                            ) : (
-                              <Copy size={12} />
-                            )}
-                          </button>
-                          <a
-                            href={getExplorerUrl('address', member.wallet.toBase58())}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="explorer-link"
-                            title="View wallet on Solana Explorer"
-                          >
-                            <ExternalLink size={12} />
-                          </a>
-                        </div>
-                      </div>
-                    </div>
 
-                    <div className="member-card-body">
-                      {/* Period Status (Who Paid) */}
-                      <div className="member-info-row">
-                        <span className="info-label">
-                          {circle.status === 'Open' ? 'Join Status' : `Period ${circle.currentPeriod} Status`}
-                        </span>
-                        {isRemoved ? (
-                          <span className="badge-status removed">
-                            <XCircle size={13} /> Removed (Defaulted)
+                        {/* Payout Status (Who is Next) */}
+                        <div className="member-info-row">
+                          <span className="info-label">Payout status</span>
+                          {isRecipient ? (
+                            <span className="badge-status next-recipient">
+                              <Award size={13} /> Next recipient
+                            </span>
+                          ) : member.hasBeenPaid ? (
+                            <span className="badge-status settled">
+                              <CheckCircle size={13} /> Paid out
+                            </span>
+                          ) : (
+                            <span className="badge-status queue">
+                              Turn: slot {member.slot}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Deposit Locked */}
+                        <div className="member-info-row">
+                          <span className="info-label">Locked deposit</span>
+                          <span className="deposit-locked-val">
+                            <strong>{formatTokenAmount(member.depositRemaining, tokenDecimals)}</strong> {tokenSymbol}
                           </span>
-                        ) : circle.status === 'Open' ? (
-                          <span className="badge-status joined">
-                            <CheckCircle size={13} /> Joined (Deposit Locked)
-                          </span>
-                        ) : hasPaidThisPeriod ? (
-                          <span className="badge-status paid">
-                            <CheckCircle size={13} /> Paid ({formattedContribution} {tokenSymbol})
-                          </span>
-                        ) : (
-                          <span className="badge-status pending">
-                            <Clock size={13} /> Pending Contribution
-                          </span>
+                        </div>
+
+                        {isRemoved && (
+                          <div className="removal-explanation">
+                            <AlertTriangle size={13} className="text-red" />
+                            <span>Missed contribution deadline. Forfeited line; deposit drawn per Section 7.</span>
+                          </div>
                         )}
                       </div>
-
-                      {/* Payout Status (Who is Next) */}
-                      <div className="member-info-row">
-                        <span className="info-label">Payout Status</span>
-                        {isRecipient ? (
-                          <span className="badge-status next-recipient">
-                            <Award size={13} /> Next Pot Recipient
-                          </span>
-                        ) : member.hasBeenPaid ? (
-                          <span className="badge-status settled">
-                            <CheckCircle size={13} /> Already Paid Out
-                          </span>
-                        ) : (
-                          <span className="badge-status queue">
-                            Turn: Slot #{member.slot}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Deposit Locked */}
-                      <div className="member-info-row">
-                        <span className="info-label">Locked Deposit</span>
-                        <span className="deposit-locked-val">
-                          <strong>{formatTokenAmount(member.depositRemaining, tokenDecimals)}</strong> {tokenSymbol}
-                        </span>
-                      </div>
-
-                      {isRemoved && (
-                        <div className="removal-explanation">
-                          <AlertTriangle size={13} className="text-red" />
-                          <span>Missed contribution deadline. Forfeited line; deposit drawn per Section 7.</span>
-                        </div>
-                      )}
                     </div>
+                  );
+                })}
+              </div>
+            </section>
+
+            {/* ACTIVITY RECORD */}
+            <section className="card events-section" aria-labelledby="events-heading">
+              <div className="card-header-row">
+                <div>
+                  <h2 id="events-heading" className="card-title">
+                    <History size={18} />
+                    On-chain activity record
+                  </h2>
+                  <p className="card-desc" style={{ margin: 0 }}>
+                    Events emitted on Solana devnet for circle operations.
+                  </p>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '1rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255, 255, 255, 0.03)', padding: '0.75rem 1rem', borderRadius: '12px', border: '1px solid var(--glass-border-subtle)' }}>
+                  <div>
+                    <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#ffffff' }}>Circle created</span>
+                    <p style={{ fontSize: '0.775rem', color: 'var(--text-muted)' }}>Circle initialized with {circle.membersTarget} member target and {circle.depositPct}% deposit rate.</p>
                   </div>
-                );
-              })}
-            </div>
-          </section>
-        </>
+                  <a
+                    href={getExplorerUrl('address', circle.address.toBase58())}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="icon-action-btn"
+                    title="View on explorer"
+                  >
+                    <ExternalLink size={14} />
+                  </a>
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
       )}
     </div>
   );

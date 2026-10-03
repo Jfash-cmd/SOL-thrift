@@ -23,6 +23,7 @@ import {
 import type { TokenChoice } from '../types';
 import { calculateSlotDeposit, calculateSlotShortfall } from '../types';
 import { DEVNET_TOKEN_MINT, isPlaceholderMint } from '../config';
+import { CircleRing } from './CircleRing';
 import {
   getSolthriftProgram,
   getCirclePda,
@@ -254,21 +255,20 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
     <div className="page-container">
       <div className="page-header">
         <h1 className="page-title">
-          Create a savings circle,{' '}
-          <span className="font-serif-italic">with partial deposits.</span>
+          Save together,{' '}
+          <span className="font-serif-italic">without trusting anyone.</span>
         </h1>
         <p className="page-subtitle">
-          Configure on-chain rotating thrift (ajo) parameters according to Section 2 of the spec.
-          Deposits are partial and program-enforced on Solana Devnet.
+          Configure rotating thrift parameters with program-enforced partial deposits on Solana.
         </p>
       </div>
 
-      <div className="create-layout-grid">
+      <div className="create-layout-split">
         {/* Form Column */}
         <section className="card form-card" aria-labelledby="form-heading">
           <h2 id="form-heading" className="card-title">
             <Coins size={18} className="text-accent" />
-            Circle Parameters
+            Circle parameters
           </h2>
 
           <form onSubmit={handleSubmit} noValidate>
@@ -479,7 +479,7 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
             {!connected && (
               <div className="alert-box warning-alert">
                 <AlertTriangle size={16} />
-                <span>Wallet not connected. Connect your wallet to create this circle on Devnet.</span>
+                <span>Wallet not connected. Connect your wallet to create this circle.</span>
               </div>
             )}
 
@@ -494,11 +494,11 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
                 {txState === 'pending' ? (
                   <>
                     <Loader2 size={16} className="spinner-icon" />
-                    Creating on Devnet...
+                    Creating circle...
                   </>
                 ) : (
                   <>
-                    Create Circle on Devnet
+                    Create circle
                     <ArrowRight size={16} />
                   </>
                 )}
@@ -509,7 +509,7 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
             {txState === 'pending' && (
               <div className="alert-box action-alert">
                 <Loader2 size={18} className="spinner-icon" />
-                <span>Submitting createCircle transaction to Solana Devnet. Please approve in your wallet...</span>
+                <span>Creating circle on Solana devnet. Approve the transaction in your wallet.</span>
               </div>
             )}
 
@@ -518,11 +518,11 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
               <div className="alert-box success-alert" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.6rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <CheckCircle2 size={18} className="text-green" />
-                  <strong>Circle successfully created on Solana Devnet!</strong>
+                  <strong>Created circle on Solana devnet.</strong>
                 </div>
 
                 <div style={{ fontSize: '0.85rem', width: '100%', wordBreak: 'break-all' }}>
-                  <div>Circle Address: <code>{createdCircleAddress}</code></div>
+                  <div>Circle address: <code>{createdCircleAddress}</code></div>
                   <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.4rem', flexWrap: 'wrap' }}>
                     <button
                       type="button"
@@ -531,7 +531,7 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
                       style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.8rem', padding: '0.2rem 0.5rem' }}
                     >
                       {copiedAddress ? <Check size={13} /> : <Copy size={13} />}
-                      {copiedAddress ? 'Copied' : 'Copy Address'}
+                      {copiedAddress ? 'Copied' : 'Copy address'}
                     </button>
                     <a
                       href={getExplorerUrl('address', createdCircleAddress)}
@@ -541,7 +541,7 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
                       style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.8rem', padding: '0.2rem 0.5rem' }}
                     >
                       <ExternalLink size={13} />
-                      View on Explorer
+                      View on explorer
                     </a>
                     {txSignature && (
                       <a
@@ -552,7 +552,7 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
                         style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.8rem', padding: '0.2rem 0.5rem' }}
                       >
                         <ExternalLink size={13} />
-                        View Transaction
+                        View transaction
                       </a>
                     )}
                   </div>
@@ -564,7 +564,7 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
                   style={{ marginTop: '0.5rem', width: '100%', padding: '0.6rem' }}
                   onClick={() => onCreated?.(createdCircleAddress)}
                 >
-                  Go to Circle Page (/circle/{createdCircleAddress.slice(0, 4)}...{createdCircleAddress.slice(-4)})
+                  Go to circle page
                   <ArrowRight size={15} />
                 </button>
               </div>
@@ -575,98 +575,124 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
               <div className="alert-box error-alert" role="alert">
                 <AlertTriangle size={18} />
                 <div>
-                  <strong>Transaction Failed:</strong>
-                  <p style={{ marginTop: '0.25rem' }}>{txError}</p>
+                  <strong>Action failed</strong>
+                  <p style={{ marginTop: '0.25rem' }}>{txError}. Check your SOL balance for transaction fees and try again.</p>
                 </div>
               </div>
             )}
           </form>
         </section>
 
-        {/* Breakdown Column: Section 6 Formula & Slot Schedule */}
-        <section className="card summary-card" aria-labelledby="breakdown-heading">
-          <div className="card-header-row">
-            <h2 id="breakdown-heading" className="card-title">
-              Section 6: Deposit Schedule
-            </h2>
-            <span className="badge-spec">Formula: max(pct × (N-k) × c, c)</span>
-          </div>
-
-          <p className="card-desc">
-            A member in slot <strong>k</strong> locks{' '}
-            <code>max({depositPct}% × ({members} - k) × {contribution}, {contribution})</code>.
-            The floor of one contribution (<code>c</code>) guarantees every member covers at least one missed period.
-          </p>
-
-          {/* Quick Metrics */}
-          <div className="metrics-banner">
-            <div className="metric-box">
-              <span className="metric-label">Pot per Period</span>
-              <span className="metric-value">
-                {slotBreakdown.potPerPeriod} <small>{token}</small>
-              </span>
+        {/* Right Column: Live Ring Preview + Deposit Table, stacked on phone */}
+        <div className="create-layout-right" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          {/* Live Ring Preview Card */}
+          <section className="card ring-preview-card" aria-labelledby="ring-preview-heading" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+              <h2 id="ring-preview-heading" className="card-title" style={{ margin: 0, fontSize: '1rem' }}>
+                Circle ring preview
+              </h2>
+              <span className="badge-pill">{depositPct}% deposit</span>
             </div>
-            <div className="metric-box">
-              <span className="metric-label">Total Deposits Locked</span>
-              <span className="metric-value">
-                {slotBreakdown.totalDeposits} <small>{token}</small>
-              </span>
-            </div>
-            <div className="metric-box">
-              <span className="metric-label">Rounds / Cycles</span>
-              <span className="metric-value">
-                {members} <small>periods</small>
-              </span>
-            </div>
-          </div>
 
-          {/* Table of Slots */}
-          <div className="table-responsive">
-            <table className="slot-table" aria-label="Deposit requirements per slot">
-              <thead>
-                <tr>
-                  <th scope="col">Slot</th>
-                  <th scope="col">Payout Turn</th>
-                  <th scope="col">Deposit Locked</th>
-                  <th scope="col">Max Group Shortfall</th>
-                </tr>
-              </thead>
-              <tbody>
-                {slotBreakdown.slots.map((item) => (
-                  <tr key={item.slot} className={item.slot === 1 ? 'row-creator' : ''}>
-                    <td>
-                      <span className="slot-pill">Slot {item.slot}</span>
-                      {item.slot === 1 && <span className="tag-creator">Creator</span>}
-                    </td>
-                    <td>
-                      {item.slot === 1 ? '1st Payout' : item.slot === members ? 'Last Payout' : `Turn ${item.slot}`}
-                    </td>
-                    <td className="deposit-cell">
-                      <strong>{item.deposit} {token}</strong>
-                    </td>
-                    <td className="shortfall-cell">
-                      {item.shortfall > 0 ? (
-                        <span className="shortfall-val">
-                          <AlertTriangle size={13} className="text-amber" />
-                          {item.shortfall} {token}
-                        </span>
-                      ) : (
-                        <span className="text-muted">0 {token} (Zero risk)</span>
-                      )}
-                    </td>
+            <CircleRing
+              isPreview={true}
+              previewMembersTarget={members}
+              previewContribution={contribution.toString()}
+              previewDepositPct={depositPct}
+              tokenSymbol={token}
+            />
+
+            <div style={{ width: '100%', marginTop: '1rem', paddingTop: '0.85rem', borderTop: '1px solid var(--glass-border-subtle)', display: 'flex', justifyContent: 'space-between', fontSize: '0.825rem', color: 'var(--text-muted)' }}>
+              <span>Slot 1 (Creator) locks {slotBreakdown.slots[0]?.deposit} {token}</span>
+              <span>Pot: {slotBreakdown.potPerPeriod} {token}</span>
+            </div>
+          </section>
+
+          {/* Breakdown Column: Section 6 Formula & Slot Schedule */}
+          <section className="card summary-card" aria-labelledby="breakdown-heading">
+            <div className="card-header-row">
+              <h2 id="breakdown-heading" className="card-title">
+                Deposit schedule
+              </h2>
+              <span className="badge-spec">Formula: max(pct × (N-k) × c, c)</span>
+            </div>
+
+            <p className="card-desc">
+              A member in slot <strong>k</strong> locks{' '}
+              <code>max({depositPct}% × ({members} - k) × {contribution}, {contribution})</code>.
+              The floor of one contribution guarantees every member covers at least one missed period.
+            </p>
+
+            {/* Quick Metrics */}
+            <div className="metrics-banner">
+              <div className="metric-box">
+                <span className="metric-label">Pot per period</span>
+                <span className="metric-value">
+                  {slotBreakdown.potPerPeriod} <small>{token}</small>
+                </span>
+              </div>
+              <div className="metric-box">
+                <span className="metric-label">Total deposits locked</span>
+                <span className="metric-value">
+                  {slotBreakdown.totalDeposits} <small>{token}</small>
+                </span>
+              </div>
+              <div className="metric-box">
+                <span className="metric-label">Rounds</span>
+                <span className="metric-value">
+                  {members} <small>periods</small>
+                </span>
+              </div>
+            </div>
+
+            {/* Table of Slots */}
+            <div className="table-responsive">
+              <table className="slot-table" aria-label="Deposit requirements per slot">
+                <thead>
+                  <tr>
+                    <th scope="col">Slot</th>
+                    <th scope="col">Payout turn</th>
+                    <th scope="col">Deposit locked</th>
+                    <th scope="col">Max group shortfall</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="spec-note-callout">
-            <Info size={16} className="text-accent" />
-            <div>
-              <strong>Why Partial Deposits?</strong> Early slots lock higher deposits because they owe more future periods after collecting the pot. The group's risk is capped transparently up front.
+                </thead>
+                <tbody>
+                  {slotBreakdown.slots.map((item) => (
+                    <tr key={item.slot} className={item.slot === 1 ? 'row-creator' : ''}>
+                      <td>
+                        <span className="slot-pill">Slot {item.slot}</span>
+                        {item.slot === 1 && <span className="tag-creator">Creator</span>}
+                      </td>
+                      <td>
+                        {item.slot === 1 ? '1st payout' : item.slot === members ? 'Last payout' : `Turn ${item.slot}`}
+                      </td>
+                      <td className="deposit-cell">
+                        <strong>{item.deposit} {token}</strong>
+                      </td>
+                      <td className="shortfall-cell">
+                        {item.shortfall > 0 ? (
+                          <span className="shortfall-val">
+                            <AlertTriangle size={13} className="text-amber" />
+                            {item.shortfall} {token}
+                          </span>
+                        ) : (
+                          <span className="text-muted">0 {token} (Zero risk)</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          </div>
-        </section>
+
+            <div className="spec-note-callout">
+              <Info size={16} className="text-accent" />
+              <div>
+                <strong>Why partial deposits?</strong> Early slots lock higher deposits because they owe more future periods after collecting the pot. The group's risk is capped transparently up front.
+              </div>
+            </div>
+          </section>
+        </div>
       </div>
     </div>
   );
