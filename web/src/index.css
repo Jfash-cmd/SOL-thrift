@@ -1266,14 +1266,7 @@ a:hover {
   display: grid;
   grid-template-columns: 1fr;
   gap: 1.5rem;
-}
-
-@media (min-width: 960px) {
-  .create-layout-split {
-    grid-template-columns: 1.15fr 1fr;
-    gap: 2rem;
-    align-items: start;
-  }
+  align-items: start;
 }
 
 .create-layout-right {
@@ -1281,6 +1274,91 @@ a:hover {
   flex-direction: column;
   gap: 1.5rem;
   min-width: 0;
+}
+
+.form-card {
+  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.create-circle-form {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.create-form-bottom {
+  margin-top: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* Desktop layout: min-width 1024px (same height panels, CSS grid stretch) */
+@media (min-width: 1024px) {
+  .create-layout-split {
+    grid-template-columns: 1.15fr 1fr;
+    gap: 2rem;
+    align-items: stretch;
+  }
+
+  .create-layout-split > .form-card,
+  .create-layout-split > .create-layout-right {
+    height: 100%;
+  }
+
+  .create-form-bottom {
+    margin-top: auto;
+    padding-top: 1.5rem;
+  }
+}
+
+/* Quick Metrics & Summary Lines (Deposit Schedule) */
+.metrics-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin: 1.25rem 0;
+  padding: 1rem 1.25rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--glass-border-subtle);
+  border-radius: 14px;
+}
+
+.metric-box {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  min-height: 24px;
+}
+
+.metric-label {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-weight: 400;
+  text-align: left;
+}
+
+.metric-value {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #ffffff;
+  font-family: var(--font-mono);
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.metric-value small {
+  font-size: 0.775rem;
+  font-weight: 400;
+  color: var(--text-muted);
+  font-family: var(--font-sans);
 }
 
 .landing-split-layout {
@@ -1295,10 +1373,6 @@ a:hover {
     gap: 2rem;
     align-items: stretch;
   }
-}
-
-.form-card {
-  padding: 2rem;
 }
 
 .form-group {

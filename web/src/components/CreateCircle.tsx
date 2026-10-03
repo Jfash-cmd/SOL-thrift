@@ -271,7 +271,7 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
             Circle parameters
           </h2>
 
-          <form onSubmit={handleSubmit} noValidate>
+          <form onSubmit={handleSubmit} noValidate className="create-circle-form">
             {/* Token Selector & Mint Warning */}
             <div className="form-group">
               <label htmlFor="token-select" className="form-label">
@@ -475,116 +475,119 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
               </div>
             </div>
 
-            {/* Wallet Not Connected Notice */}
-            {!connected && (
-              <div className="alert-box warning-alert">
-                <AlertTriangle size={16} />
-                <span>Wallet not connected. Connect your wallet to create this circle.</span>
-              </div>
-            )}
-
-            {/* Submit Action */}
-            <div className="form-submit-area">
-              <button
-                type="submit"
-                id="create-circle-btn"
-                className="btn-primary"
-                disabled={!isValid || !connected || txState === 'pending'}
-              >
-                {txState === 'pending' ? (
-                  <>
-                    <Loader2 size={16} className="spinner-icon" />
-                    Creating circle...
-                  </>
-                ) : (
-                  <>
-                    Create circle
-                    <ArrowRight size={16} />
-                  </>
-                )}
-              </button>
-            </div>
-
-            {/* Transaction Pending State */}
-            {txState === 'pending' && (
-              <div className="alert-box action-alert">
-                <Loader2 size={18} className="spinner-icon" />
-                <span>Creating circle on Solana devnet. Approve the transaction in your wallet.</span>
-              </div>
-            )}
-
-            {/* Transaction Success State */}
-            {txState === 'success' && createdCircleAddress && (
-              <div className="alert-box success-alert" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.6rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <CheckCircle2 size={18} className="text-green" />
-                  <strong>Created circle on Solana devnet.</strong>
+            {/* Bottom action area pushed to bottom with margin-top: auto on desktop */}
+            <div className="create-form-bottom">
+              {/* Wallet Not Connected Notice */}
+              {!connected && (
+                <div className="alert-box warning-alert">
+                  <AlertTriangle size={16} />
+                  <span>Wallet not connected. Connect your wallet to create this circle.</span>
                 </div>
+              )}
 
-                <div style={{ fontSize: '0.85rem', width: '100%', wordBreak: 'break-all' }}>
-                  <div>Circle address: <code>{createdCircleAddress}</code></div>
-                  <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.4rem', flexWrap: 'wrap' }}>
-                    <button
-                      type="button"
-                      className="icon-action-btn"
-                      onClick={handleCopyCircle}
-                      style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.8rem', padding: '0.2rem 0.5rem' }}
-                    >
-                      {copiedAddress ? <Check size={13} /> : <Copy size={13} />}
-                      {copiedAddress ? 'Copied' : 'Copy address'}
-                    </button>
-                    <a
-                      href={getExplorerUrl('address', createdCircleAddress)}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="icon-action-btn"
-                      style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.8rem', padding: '0.2rem 0.5rem' }}
-                    >
-                      <ExternalLink size={13} />
-                      View on explorer
-                    </a>
-                    {txSignature && (
+              {/* Submit Action */}
+              <div className="form-submit-area">
+                <button
+                  type="submit"
+                  id="create-circle-btn"
+                  className="btn-primary"
+                  disabled={!isValid || !connected || txState === 'pending'}
+                >
+                  {txState === 'pending' ? (
+                    <>
+                      <Loader2 size={16} className="spinner-icon" />
+                      Creating circle...
+                    </>
+                  ) : (
+                    <>
+                      Create circle
+                      <ArrowRight size={16} />
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* Transaction Pending State */}
+              {txState === 'pending' && (
+                <div className="alert-box action-alert">
+                  <Loader2 size={18} className="spinner-icon" />
+                  <span>Creating circle on Solana devnet. Approve the transaction in your wallet.</span>
+                </div>
+              )}
+
+              {/* Transaction Success State */}
+              {txState === 'success' && createdCircleAddress && (
+                <div className="alert-box success-alert" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.6rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <CheckCircle2 size={18} className="text-green" />
+                    <strong>Created circle on Solana devnet.</strong>
+                  </div>
+
+                  <div style={{ fontSize: '0.85rem', width: '100%', wordBreak: 'break-all' }}>
+                    <div>Circle address: <code>{createdCircleAddress}</code></div>
+                    <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.4rem', flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        className="icon-action-btn"
+                        onClick={handleCopyCircle}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.8rem', padding: '0.2rem 0.5rem' }}
+                      >
+                        {copiedAddress ? <Check size={13} /> : <Copy size={13} />}
+                        {copiedAddress ? 'Copied' : 'Copy address'}
+                      </button>
                       <a
-                        href={getExplorerUrl('tx', txSignature)}
+                        href={getExplorerUrl('address', createdCircleAddress)}
                         target="_blank"
                         rel="noreferrer"
                         className="icon-action-btn"
                         style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.8rem', padding: '0.2rem 0.5rem' }}
                       >
                         <ExternalLink size={13} />
-                        View transaction
+                        View on explorer
                       </a>
-                    )}
+                      {txSignature && (
+                        <a
+                          href={getExplorerUrl('tx', txSignature)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="icon-action-btn"
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.8rem', padding: '0.2rem 0.5rem' }}
+                        >
+                          <ExternalLink size={13} />
+                          View transaction
+                        </a>
+                      )}
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    style={{ marginTop: '0.5rem', width: '100%', padding: '0.6rem' }}
+                    onClick={() => onCreated?.(createdCircleAddress)}
+                  >
+                    Go to circle page
+                    <ArrowRight size={15} />
+                  </button>
+                </div>
+              )}
+
+              {/* Transaction Failure State */}
+              {txState === 'error' && txError && (
+                <div className="alert-box error-alert" role="alert">
+                  <AlertTriangle size={18} />
+                  <div>
+                    <strong>Action failed</strong>
+                    <p style={{ marginTop: '0.25rem' }}>{txError}. Check your SOL balance for transaction fees and try again.</p>
                   </div>
                 </div>
-
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  style={{ marginTop: '0.5rem', width: '100%', padding: '0.6rem' }}
-                  onClick={() => onCreated?.(createdCircleAddress)}
-                >
-                  Go to circle page
-                  <ArrowRight size={15} />
-                </button>
-              </div>
-            )}
-
-            {/* Transaction Failure State */}
-            {txState === 'error' && txError && (
-              <div className="alert-box error-alert" role="alert">
-                <AlertTriangle size={18} />
-                <div>
-                  <strong>Action failed</strong>
-                  <p style={{ marginTop: '0.25rem' }}>{txError}. Check your SOL balance for transaction fees and try again.</p>
-                </div>
-              </div>
-            )}
+              )}
+            </div>
           </form>
         </section>
 
         {/* Right Column: Live Ring Preview + Deposit Table, stacked on phone */}
-        <div className="create-layout-right" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+        <div className="create-layout-right">
           {/* Live Ring Preview Card */}
           <section className="card ring-preview-card" aria-labelledby="ring-preview-heading" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
             <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
