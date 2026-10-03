@@ -6,12 +6,21 @@ import { ShieldCheck, Copy, Check, ExternalLink } from 'lucide-react';
 
 interface NavbarProps {
   activeTab: 'circle' | 'create';
-  setActiveTab: (tab: 'circle' | 'create') => void;
+  setActiveTab?: (tab: 'circle' | 'create') => void;
+  onNavigate?: (tab: 'circle' | 'create') => void;
 }
 
-export const Navbar: FC<NavbarProps> = ({ activeTab, setActiveTab }) => {
+export const Navbar: FC<NavbarProps> = ({ activeTab, setActiveTab, onNavigate }) => {
   const { publicKey, disconnect, connected } = useWallet();
   const [copied, setCopied] = useState(false);
+
+  const handleNav = (tab: 'circle' | 'create') => {
+    if (onNavigate) {
+      onNavigate(tab);
+    } else if (setActiveTab) {
+      setActiveTab(tab);
+    }
+  };
 
   const shortenedAddress = publicKey
     ? `${publicKey.toBase58().slice(0, 4)}...${publicKey.toBase58().slice(-4)}`
@@ -29,7 +38,7 @@ export const Navbar: FC<NavbarProps> = ({ activeTab, setActiveTab }) => {
     <header className="site-header">
       <div className="header-container">
         {/* Brand / Logo */}
-        <div className="brand-group" onClick={() => setActiveTab('circle')} style={{ cursor: 'pointer' }}>
+        <div className="brand-group" onClick={() => handleNav('circle')} style={{ cursor: 'pointer' }}>
           <div className="brand-icon">
             <ShieldCheck size={22} className="brand-icon-svg" />
           </div>
@@ -44,7 +53,7 @@ export const Navbar: FC<NavbarProps> = ({ activeTab, setActiveTab }) => {
           <button
             type="button"
             className={`nav-btn ${activeTab === 'circle' ? 'active' : ''}`}
-            onClick={() => setActiveTab('circle')}
+            onClick={() => handleNav('circle')}
             id="nav-tab-circle"
           >
             Circle Dashboard
@@ -52,7 +61,7 @@ export const Navbar: FC<NavbarProps> = ({ activeTab, setActiveTab }) => {
           <button
             type="button"
             className={`nav-btn ${activeTab === 'create' ? 'active' : ''}`}
-            onClick={() => setActiveTab('create')}
+            onClick={() => handleNav('create')}
             id="nav-tab-create"
           >
             Create Circle

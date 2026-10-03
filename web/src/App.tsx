@@ -1,25 +1,96 @@
 import type { FC } from 'react';
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { WalletContextProvider } from './components/WalletContextProvider';
 import { Navbar } from './components/Navbar';
 import { CircleView } from './components/CircleView';
 import { CreateCircle } from './components/CreateCircle';
 import { ShieldCheck, BookOpen, ExternalLink } from 'lucide-react';
 
+interface RouteState {
+  tab: 'circle' | 'create';
+  circleAddress: string | null;
+}
+
+function parseCurrentRoute(): RouteState {
+  if (typeof window === 'undefined') {
+    return { tab: 'circle', circleAddress: null };
+  }
+
+  const path = window.location.pathname;
+  const hash = window.location.hash;
+
+  // 1. Check pathname: /circle/<pubkey>
+  const pathMatch = path.match(/^\/circle\/([A-Za-z0-9]+)/);
+  if (pathMatch) {
+    return { tab: 'circle', circleAddress: pathMatch[1] };
+  }
+
+  // 2. Check hash: #/circle/<pubkey>
+  const hashMatch = hash.match(/^#\/circle\/([A-Za-z0-9]+)/);
+  if (hashMatch) {
+    return { tab: 'circle', circleAddress: hashMatch[1] };
+  }
+
+  // 3. Check /create or #/create
+  if (path === '/create' || hash === '#/create') {
+    return { tab: 'create', circleAddress: null };
+  }
+
+  return { tab: 'circle', circleAddress: null };
+}
+
 export const AppContent: FC = () => {
-  const [activeTab, setActiveTab] = useState<'circle' | 'create'>('circle');
+  const [route, setRoute] = useState<RouteState>(parseCurrentRoute);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      setRoute(parseCurrentRoute());
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  const navigateTo = useCallback((urlPath: string) => {
+    window.history.pushState({}, '', urlPath);
+    setRoute(parseCurrentRoute());
+  }, []);
 
   return (
     <div className="app-shell">
       {/* Top Navigation */}
-      <Navbar activeTab={activeTab} setActiveTab={setActiveTab} />
+      <Navbar
+        activeTab={route.tab}
+        onNavigate={(tab) => {
+          if (tab === 'create') {
+            navigateTo('/create');
+          } else {
+            if (route.circleAddress) {
+              navigateTo(`/circle/${route.circleAddress}`);
+            } else {
+              navigateTo('/');
+            }
+          }
+        }}
+      />
 
       {/* Main Content Area */}
       <main className="main-content">
-        {activeTab === 'circle' ? (
-          <CircleView />
+        {route.tab === 'circle' ? (
+          <CircleView
+            circleAddress={route.circleAddress}
+            onSelectCircle={(addr) => navigateTo(`/circle/${addr}`)}
+            onNavigateCreate={() => navigateTo('/create')}
+          />
         ) : (
-          <CreateCircle onCreated={() => setActiveTab('circle')} />
+          <CreateCircle
+            onCreated={(newCircleAddress) => {
+              if (newCircleAddress) {
+                navigateTo(`/circle/${newCircleAddress}`);
+              } else {
+                navigateTo('/');
+              }
+            }}
+          />
         )}
       </main>
 
@@ -32,8 +103,8 @@ export const AppContent: FC = () => {
               <span>Solthrift</span>
             </div>
             <p className="footer-text">
-              Decentralized, non-custodial rotating savings circle (ajo/thrift) on Solana.
-              Rules enforced by code. No person or company holds the money.
+              Decentralized, non-custodial rotating savings circle (ajo/thrift) on Solana Devnet.
+              Rules enforced by program CfY1M7cdgv1AvkLPuquqbCPNxMz73icdukWQP2sKdPq4. No person or company holds the money.
             </p>
           </div>
 
@@ -44,7 +115,7 @@ export const AppContent: FC = () => {
                 href="#spec"
                 onClick={(e) => {
                   e.preventDefault();
-                  alert('This build strictly follows docs/solthrift-spec.md located in the root repository.');
+                  alert('This web build strictly follows docs/solthrift-spec.md and program/lib.rs.');
                 }}
                 className="footer-link"
               >
@@ -52,19 +123,19 @@ export const AppContent: FC = () => {
                 docs/solthrift-spec.md
               </a>
               <a
-                href="https://explorer.solana.com/?cluster=devnet"
+                href="https://explorer.solana.com/address/CfY1M7cdgv1AvkLPuquqbCPNxMz73icdukWQP2sKdPq4?cluster=devnet"
                 target="_blank"
                 rel="noreferrer"
                 className="footer-link"
               >
                 <ExternalLink size={14} />
-                Solana Devnet Explorer
+                Solthrift Program on Explorer
               </a>
             </div>
           </div>
         </div>
         <div className="footer-bottom-bar">
-          <span>Devnet Only • Mock Data Demo • All keys and test tokens must never be exposed or requested without approval.</span>
+          <span>Devnet Only • Connected to Program CfY1M7cdgv1AvkLPuquqbCPNxMz73icdukWQP2sKdPq4 • No secret keys or private keys are ever stored or exposed.</span>
         </div>
       </footer>
     </div>

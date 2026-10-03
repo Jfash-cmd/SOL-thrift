@@ -1,7 +1,9 @@
 import type { FC, FormEvent } from 'react';
 import { useState, useMemo } from 'react';
-import type { TokenChoice } from '../types';
-import { calculateSlotDeposit, calculateSlotShortfall } from '../types';
+import { useConnection, useWallet, useAnchorWallet } from '@solana/wallet-adapter-react';
+import { PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY } from '@solana/web3.js';
+import { BN } from '@coral-xyz/anchor';
+import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import {
   Coins,
   Users,
@@ -12,22 +14,64 @@ import {
   CheckCircle2,
   AlertTriangle,
   ArrowRight,
+  ExternalLink,
+  Copy,
+  Check,
+  Loader2,
 } from 'lucide-react';
 
+import type { TokenChoice } from '../types';
+import { calculateSlotDeposit, calculateSlotShortfall } from '../types';
+import { DEVNET_TOKEN_MINT, isPlaceholderMint } from '../config';
+import {
+  getSolthriftProgram,
+  getCirclePda,
+  getMemberPda,
+  getVaultPda,
+  getOrCreateAtaInstruction,
+  getExplorerUrl,
+  translateProgramError,
+} from '../solthriftClient';
+
 interface CreateCircleProps {
-  onCreated?: () => void;
+  onCreated?: (circleAddress: string) => void;
 }
 
 export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
-  // Section 2 parameters with suggested demo defaults
+  const { connection } = useConnection();
+  const wallet = useAnchorWallet();
+  const { connected } = useWallet();
+
+  // Form parameters
   const [token, setToken] = useState<TokenChoice>('USDC');
   const [members, setMembers] = useState<number>(4);
   const [contribution, setContribution] = useState<number>(10);
   const [depositPct, setDepositPct] = useState<number>(50);
-  const [period, setPeriod] = useState<string>('1 day');
-  const [grace, setGrace] = useState<string>('6 hours');
+  const [period, setPeriod] = useState<string>('20 seconds');
+  const [grace, setGrace] = useState<string>('0 seconds');
 
-  const [submittedMessage, setSubmittedMessage] = useState<string | null>(null);
+  // Custom token mint input in case DEVNET_TOKEN_MINT is a placeholder
+  const [customMintInput, setCustomMintInput] = useState<string>('');
+
+  // Transaction states
+  const [txState, setTxState] = useState<'idle' | 'pending' | 'success' | 'error'>('idle');
+  const [txError, setTxError] = useState<string | null>(null);
+  const [txSignature, setTxSignature] = useState<string | null>(null);
+  const [createdCircleAddress, setCreatedCircleAddress] = useState<string | null>(null);
+  const [copiedAddress, setCopiedAddress] = useState<boolean>(false);
+
+  // Determine active token mint
+  const hasPlaceholderConfigMint = isPlaceholderMint(DEVNET_TOKEN_MINT);
+  const activeMint = useMemo(() => {
+    if (customMintInput.trim()) {
+      try {
+        return new PublicKey(customMintInput.trim());
+      } catch {
+        return null;
+      }
+    }
+    return hasPlaceholderConfigMint ? null : DEVNET_TOKEN_MINT;
+  }, [customMintInput, hasPlaceholderConfigMint]);
 
   // Validation according to Section 2 and Section 7
   const errors = useMemo(() => {
@@ -41,10 +85,55 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
     if (isNaN(depositPct) || depositPct < 25 || depositPct > 100) {
       errs.depositPct = 'Deposit percentage must be between 25% and 100%';
     }
+    if (!activeMint) {
+      errs.mint = hasPlaceholderConfigMint
+        ? 'DEVNET_TOKEN_MINT is a placeholder. Please provide a Devnet token mint address.'
+        : 'Invalid token mint address';
+    }
     return errs;
-  }, [members, contribution, depositPct, token]);
+  }, [members, contribution, depositPct, token, activeMint, hasPlaceholderConfigMint]);
 
   const isValid = Object.keys(errors).length === 0;
+
+  // Period duration to seconds mapping
+  const periodDurationSeconds = useMemo(() => {
+    switch (period) {
+      case '20 seconds':
+        return 20;
+      case '1 minute':
+        return 60;
+      case '1 day':
+        return 86400;
+      case '3 days':
+        return 259200;
+      case '1 week':
+        return 604800;
+      case '2 weeks':
+        return 1209600;
+      case '1 month':
+        return 2592000;
+      default:
+        return 86400;
+    }
+  }, [period]);
+
+  // Grace duration to seconds mapping
+  const graceDurationSeconds = useMemo(() => {
+    switch (grace) {
+      case '0 seconds':
+        return 0;
+      case '6 hours':
+        return 21600;
+      case '12 hours':
+        return 43200;
+      case '24 hours':
+        return 86400;
+      case '48 hours':
+        return 172800;
+      default:
+        return 0;
+    }
+  }, [grace]);
 
   // Compute breakdown for all slots based on Section 6
   const slotBreakdown = useMemo(() => {
@@ -75,17 +164,90 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
     };
   }, [members, contribution, depositPct]);
 
-  const handleSubmit = (e: FormEvent) => {
+  // Submit on-chain createCircle instruction
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!isValid) return;
+    if (!isValid || !activeMint) return;
 
-    setSubmittedMessage(
-      `Mock circle configuration verified! In Phase 2, this will dispatch the create_circle Anchor instruction on Solana Devnet.`
-    );
-    setTimeout(() => {
-      setSubmittedMessage(null);
-      if (onCreated) onCreated();
-    }, 2800);
+    if (!connected || !wallet || !wallet.publicKey) {
+      setTxState('error');
+      setTxError('Please connect your Solana wallet first to create a circle.');
+      return;
+    }
+
+    try {
+      setTxState('pending');
+      setTxError(null);
+      setTxSignature(null);
+      setCreatedCircleAddress(null);
+
+      // Section 7 Invariant: 6 decimals factor for contribution base units
+      const decimals = 6;
+      const baseUnitsFactor = new BN(10).pow(new BN(decimals));
+      const contributionBN = new BN(contribution).mul(baseUnitsFactor);
+
+      // Unique circle ID per circle creation
+      const circleId = new BN(Math.floor(Date.now() / 1000));
+
+      const [circlePda] = getCirclePda(wallet.publicKey, circleId);
+      const [creatorMemberPda] = getMemberPda(circlePda, wallet.publicKey);
+      const [vaultPda] = getVaultPda(circlePda);
+
+      // Check if creator ATA for the token mint exists, and create if needed
+      const { ata: creatorAta, instruction: createAtaIx } = await getOrCreateAtaInstruction(
+        connection,
+        activeMint,
+        wallet.publicKey,
+        wallet.publicKey
+      );
+
+      const program = getSolthriftProgram(connection, wallet);
+
+      const method = program.methods
+        .createCircle(
+          circleId,
+          members,
+          contributionBN,
+          depositPct,
+          new BN(periodDurationSeconds),
+          new BN(graceDurationSeconds),
+          new BN(0), // fillWindowDuration (0 defaults to 2 days)
+          new BN(0) // openWindowDuration (0 defaults to 7 days)
+        )
+        .accounts({
+          circle: circlePda,
+          creatorMember: creatorMemberPda,
+          vault: vaultPda,
+          creator: wallet.publicKey,
+          tokenMint: activeMint,
+          creatorTokenAccount: creatorAta,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+          rent: SYSVAR_RENT_PUBKEY,
+        });
+
+      if (createAtaIx) {
+        method.preInstructions([createAtaIx]);
+      }
+
+      const sig = await method.rpc();
+      setTxSignature(sig);
+      setCreatedCircleAddress(circlePda.toBase58());
+      setTxState('success');
+    } catch (err: any) {
+      console.error('createCircle failed:', err);
+      setTxState('error');
+      const translated = translateProgramError(err);
+      setTxError(`${translated.name ? translated.name + ': ' : ''}${translated.message}`);
+    }
+  };
+
+  const handleCopyCircle = () => {
+    if (createdCircleAddress) {
+      navigator.clipboard.writeText(createdCircleAddress);
+      setCopiedAddress(true);
+      setTimeout(() => setCopiedAddress(false), 2000);
+    }
   };
 
   return (
@@ -94,7 +256,7 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
         <h1 className="page-title">Create a Savings Circle</h1>
         <p className="page-subtitle">
           Configure on-chain rotating thrift (ajo) parameters according to Section 2 of the spec.
-          Deposits are partial and program-enforced.
+          Deposits are partial and program-enforced on Solana Devnet.
         </p>
       </div>
 
@@ -107,11 +269,14 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
           </h2>
 
           <form onSubmit={handleSubmit} noValidate>
-            {/* Token Selector */}
+            {/* Token Selector & Mint Warning */}
             <div className="form-group">
               <label htmlFor="token-select" className="form-label">
-                Stablecoin Token (Devnet test mint)
-                <span className="tooltip-hint" title="Circles use exactly one token for all deposits, contributions and payouts. Never mixed.">
+                Stablecoin Token (Devnet Mint)
+                <span
+                  className="tooltip-hint"
+                  title="Circles use exactly one token for all deposits, contributions and payouts. Never mixed."
+                >
                   <Info size={14} />
                 </span>
               </label>
@@ -135,9 +300,37 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
                   USDT
                 </button>
               </div>
-              <small className="form-hint">
-                Single stablecoin per circle ensures payouts keep constant value. SOL is used only for network fees.
-              </small>
+
+              {hasPlaceholderConfigMint ? (
+                <div className="alert-box warning-alert" style={{ marginTop: '0.6rem' }}>
+                  <AlertTriangle size={16} />
+                  <div>
+                    <strong>TODO (Mint Placeholder):</strong> DEVNET_TOKEN_MINT in <code>config.ts</code> is not set yet.
+                    Please provide the Devnet token mint address or enter one below.
+                  </div>
+                </div>
+              ) : (
+                <small className="form-hint" style={{ wordBreak: 'break-all' }}>
+                  Configured Devnet Mint: <code>{DEVNET_TOKEN_MINT.toBase58()}</code>
+                </small>
+              )}
+
+              {/* Optional Custom Mint Input */}
+              <div style={{ marginTop: '0.5rem' }}>
+                <label htmlFor="custom-mint-input" className="form-label" style={{ fontSize: '0.8rem' }}>
+                  Override Token Mint Address (Devnet SPL Token):
+                </label>
+                <input
+                  id="custom-mint-input"
+                  type="text"
+                  placeholder={hasPlaceholderConfigMint ? 'Paste 32-44 character Devnet Mint address' : 'Optional: override config mint'}
+                  value={customMintInput}
+                  onChange={(e) => setCustomMintInput(e.target.value)}
+                  className={`text-input ${errors.mint ? 'input-error' : ''}`}
+                  style={{ fontSize: '0.85rem', padding: '0.5rem 0.75rem' }}
+                />
+                {errors.mint && <p className="error-text" role="alert">{errors.mint}</p>}
+              </div>
             </div>
 
             {/* Members (N) */}
@@ -234,7 +427,7 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
               </div>
               {errors.depositPct && <p className="error-text" role="alert">{errors.depositPct}</p>}
               <small className="form-hint">
-                Share of what a member would still owe that they lock up front as a deposit.
+                Share of future dues locked upfront as a security deposit.
               </small>
             </div>
 
@@ -250,6 +443,8 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
                   value={period}
                   onChange={(e) => setPeriod(e.target.value)}
                 >
+                  <option value="20 seconds">20 seconds (Devnet fast test)</option>
+                  <option value="1 minute">1 minute (Devnet test)</option>
                   <option value="1 day">1 day (demo)</option>
                   <option value="3 days">3 days</option>
                   <option value="1 week">1 week (production)</option>
@@ -268,6 +463,7 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
                   value={grace}
                   onChange={(e) => setGrace(e.target.value)}
                 >
+                  <option value="0 seconds">0 seconds (Devnet fast test)</option>
                   <option value="6 hours">6 hours (demo)</option>
                   <option value="12 hours">12 hours</option>
                   <option value="24 hours">24 hours</option>
@@ -276,23 +472,109 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
               </div>
             </div>
 
+            {/* Wallet Not Connected Notice */}
+            {!connected && (
+              <div className="alert-box warning-alert">
+                <AlertTriangle size={16} />
+                <span>Wallet not connected. Connect your wallet to create this circle on Devnet.</span>
+              </div>
+            )}
+
             {/* Submit Action */}
             <div className="form-submit-area">
               <button
                 type="submit"
                 id="create-circle-btn"
                 className="btn-primary"
-                disabled={!isValid}
+                disabled={!isValid || !connected || txState === 'pending'}
               >
-                Create Circle (Demo Mock)
-                <ArrowRight size={16} />
+                {txState === 'pending' ? (
+                  <>
+                    <Loader2 size={16} className="spinner-icon" />
+                    Creating on Devnet...
+                  </>
+                ) : (
+                  <>
+                    Create Circle on Devnet
+                    <ArrowRight size={16} />
+                  </>
+                )}
               </button>
             </div>
 
-            {submittedMessage && (
-              <div className="alert-box success-alert" role="status">
-                <CheckCircle2 size={18} />
-                <span>{submittedMessage}</span>
+            {/* Transaction Pending State */}
+            {txState === 'pending' && (
+              <div className="alert-box action-alert">
+                <Loader2 size={18} className="spinner-icon" />
+                <span>Submitting createCircle transaction to Solana Devnet. Please approve in your wallet...</span>
+              </div>
+            )}
+
+            {/* Transaction Success State */}
+            {txState === 'success' && createdCircleAddress && (
+              <div className="alert-box success-alert" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.6rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <CheckCircle2 size={18} className="text-green" />
+                  <strong>Circle successfully created on Solana Devnet!</strong>
+                </div>
+
+                <div style={{ fontSize: '0.85rem', width: '100%', wordBreak: 'break-all' }}>
+                  <div>Circle Address: <code>{createdCircleAddress}</code></div>
+                  <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.4rem', flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      className="icon-action-btn"
+                      onClick={handleCopyCircle}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.8rem', padding: '0.2rem 0.5rem' }}
+                    >
+                      {copiedAddress ? <Check size={13} /> : <Copy size={13} />}
+                      {copiedAddress ? 'Copied' : 'Copy Address'}
+                    </button>
+                    <a
+                      href={getExplorerUrl('address', createdCircleAddress)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="icon-action-btn"
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.8rem', padding: '0.2rem 0.5rem' }}
+                    >
+                      <ExternalLink size={13} />
+                      View on Explorer
+                    </a>
+                    {txSignature && (
+                      <a
+                        href={getExplorerUrl('tx', txSignature)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="icon-action-btn"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.8rem', padding: '0.2rem 0.5rem' }}
+                      >
+                        <ExternalLink size={13} />
+                        View Transaction
+                      </a>
+                    )}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  style={{ marginTop: '0.5rem', width: '100%', padding: '0.6rem' }}
+                  onClick={() => onCreated?.(createdCircleAddress)}
+                >
+                  Go to Circle Page (/circle/{createdCircleAddress.slice(0, 4)}...{createdCircleAddress.slice(-4)})
+                  <ArrowRight size={15} />
+                </button>
+              </div>
+            )}
+
+            {/* Transaction Failure State */}
+            {txState === 'error' && txError && (
+              <div className="alert-box error-alert" role="alert">
+                <AlertTriangle size={18} />
+                <div>
+                  <strong>Transaction Failed:</strong>
+                  <p style={{ marginTop: '0.25rem' }}>{txError}</p>
+                </div>
               </div>
             )}
           </form>
