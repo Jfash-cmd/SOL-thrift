@@ -1,9 +1,9 @@
 import type { FC } from 'react';
 import { useState, useEffect, useCallback } from 'react';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
-import { PublicKey, TransactionInstruction } from '@solana/web3.js';
+import { PublicKey, TransactionInstruction, SystemProgram } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
-import { SystemProgram } from '@solana/web3.js';
+import { BN } from '@coral-xyz/anchor';
 import {
   ShieldAlert,
   Clock,
@@ -344,29 +344,62 @@ export const CircleView: FC<CircleViewProps> = ({
     ? `Seat ${currentPeriodRecipientSlot}`
     : 'next recipient';
 
+  // Countdown timers formatted for the three action buttons
+  const countdownGraceSec = graceDeadline - nowSec;
+  const payoutCountdown =
+    isCircleActive
+      ? countdownGraceSec > 0
+        ? `${formatCountdown(graceDeadline)} left in turn`
+        : 'Turn expired'
+      : isCircleOpen
+      ? 'Round not started'
+      : `Status: ${circle?.status || 'Unknown'}`;
+
+  const removeDefaulterCountdown =
+    isCircleActive
+      ? countdownGraceSec > 0
+        ? `${formatCountdown(graceDeadline)} until removal allowed`
+        : 'Grace period expired'
+      : isCircleOpen
+      ? 'Round not started'
+      : `Status: ${circle?.status || 'Unknown'}`;
+
+  const contributeCountdown =
+    isCircleActive
+      ? countdownGraceSec > 0
+        ? `${formatCountdown(graceDeadline)} left to pay`
+        : 'Turn deadline expired'
+      : isCircleOpen
+      ? 'Round not started'
+      : `Status: ${circle?.status || 'Unknown'}`;
+
   const canPayout = Boolean(
+    connected &&
+    publicKey &&
     isCircleActive &&
     circle &&
-    circle.contributionsThisPeriod === circle.expectedContributors &&
     circle.currentPeriod >= 1 &&
     circle.currentPeriod <= circle.orderLen &&
+    circle.contributionsThisPeriod === circle.expectedContributors &&
     nextRecipientMember &&
-    !nextRecipientMember.hasBeenPaid &&
-    connected
+    !nextRecipientMember.hasBeenPaid
   );
 
   let payoutReason = '';
   if (!connected) {
-    payoutReason = 'Connect your wallet to continue.';
+    payoutReason = 'Connect your wallet to call payout.';
+  } else if (isCircleOpen) {
+    payoutReason = 'Circle is Open. Payouts start after round begins and seats fill.';
   } else if (!isCircleActive) {
-    payoutReason = `Circle is not running`;
+    payoutReason = `Circle is not Active (status: ${circle?.status || 'Unknown'}).`;
   } else if (circle && circle.contributionsThisPeriod < circle.expectedContributors) {
-    const remainingText = nowSec <= graceDeadline ? ` (${formatCountdown(graceDeadline)} left to pay)` : ' (extra time to pay has passed)';
-    payoutReason = `Waiting for payments: ${circle.contributionsThisPeriod} of ${circle.expectedContributors} members have paid for this turn${remainingText}`;
+    payoutReason = `Not enough contributions: ${circle.contributionsThisPeriod} of ${circle.expectedContributors} members have paid.`;
   } else if (nextRecipientMember?.hasBeenPaid) {
-    payoutReason = `Recipient in seat ${currentPeriodRecipientSlot} already received the pot for this turn`;
+    payoutReason = `Already paid: recipient in seat ${currentPeriodRecipientSlot} already received the pot.`;
   } else if (canPayout) {
-    payoutReason = `All ${circle?.expectedContributors} payments received. Ready to pay out pot to seat ${currentPeriodRecipientSlot}.`;
+    payoutReason = `All ${circle?.expectedContributors} contributions received. Ready to pay out pot to ${payoutRecipientDisplay}.`;
+  } else {
+    payoutReason = 'Payout conditions not met.';
   }
 
   // Late members evaluation for Remove Defaulter
@@ -382,64 +415,173 @@ export const CircleView: FC<CircleViewProps> = ({
     : 'Remove late member';
 
   const canRemoveDefaulter = Boolean(
+    connected &&
+    publicKey &&
     isCircleActive &&
     targetLateMember !== null &&
-    isGraceExpired &&
-    connected
+    isGraceExpired
   );
 
   let removeDefaulterReason = '';
   if (!connected) {
-    removeDefaulterReason = 'Connect your wallet to continue.';
+    removeDefaulterReason = 'Connect your wallet to remove late members.';
+  } else if (isCircleOpen) {
+    removeDefaulterReason = 'Circle is Open. Defaulter removal is only available during active turns.';
   } else if (!isCircleActive) {
-    removeDefaulterReason = `Circle is not running`;
+    removeDefaulterReason = `Circle is not Active (status: ${circle?.status || 'Unknown'}).`;
   } else if (lateMembers.length === 0 || (circle && circle.contributionsThisPeriod === circle.expectedContributors)) {
-    removeDefaulterReason = `No late members: all ${circle?.expectedContributors || 0} members have paid for Turn ${circle?.currentPeriod}`;
+    removeDefaulterReason = `No late members: all ${circle?.expectedContributors || 0} members have paid for Turn ${circle?.currentPeriod}.`;
   } else if (!isGraceExpired) {
-    removeDefaulterReason = `Time has not run out yet (${formatCountdown(graceDeadline)} left)`;
+    removeDefaulterReason = `Deadline not reached: ${formatCountdown(graceDeadline)} remaining in grace period.`;
   } else if (canRemoveDefaulter) {
     removeDefaulterReason = `Time to pay has passed. Seat ${targetLateMember?.slot} missed payment; anyone can remove them to settle.`;
-  }
-
-  // Start states evaluation
-  const fillWindowEndTime = circle
-    ? periodStartTime + Number(circle.fillWindowDuration.toString())
-    : 0;
-
-  let startButtonLabel = 'Start next turn';
-  let startReason = '';
-
-  if (isCircleOpen) {
-    startButtonLabel = 'Start circle';
-    startReason = `Circle is waiting for members (${circle?.currentMemberCount || 0} of ${circle?.membersTarget || 0} joined). Starts automatically when all seats fill.`;
-  } else if (isCircleActive) {
-    startButtonLabel = 'Start next turn';
-    startReason = `Turn ${circle?.currentPeriod} of ${circle?.orderLen || circle?.membersTarget} is currently running. Next turn starts after current turn finishes.`;
-  } else if (circle?.status === 'Filling') {
-    startButtonLabel = 'Start next turn';
-    if (nowSec <= fillWindowEndTime) {
-      startReason = `Waiting window active (${formatCountdown(fillWindowEndTime)} left)`;
-    } else {
-      startReason = 'Waiting window ended. Seats locked; ready for next turn.';
-    }
   } else {
-    startButtonLabel = 'Start next turn';
-    startReason = 'Circle is not active';
+    removeDefaulterReason = 'Defaulter removal conditions not met.';
   }
 
-  // Member-specific flags
+  // Member-specific Contribute Evaluation
+  const canContribute = Boolean(
+    connected &&
+    publicKey &&
+    userMember &&
+    userMember.status === 'Active' &&
+    isCircleActive &&
+    userMember.lastContributedPeriod !== circle?.currentPeriod &&
+    nowSec <= graceDeadline
+  );
+
+  let contributeReason = '';
+  if (!connected) {
+    contributeReason = 'Connect your wallet to contribute.';
+  } else if (!userMember) {
+    contributeReason = 'Wallet is not a member of this circle.';
+  } else if (userMember.status !== 'Active') {
+    contributeReason = `Member status is ${userMember.status} (not Active).`;
+  } else if (isCircleOpen) {
+    contributeReason = `Circle is Open. Turn contributions start after all ${circle?.membersTarget || 0} seats fill.`;
+  } else if (!isCircleActive) {
+    contributeReason = `Circle is not Active (status: ${circle?.status || 'Unknown'}).`;
+  } else if (userMember.lastContributedPeriod === circle?.currentPeriod) {
+    contributeReason = `Already paid: you contributed for Turn ${circle?.currentPeriod}.`;
+  } else if (nowSec > graceDeadline) {
+    contributeReason = 'Contribution deadline has passed for this turn.';
+  } else if (canContribute) {
+    contributeReason = `Ready to contribute ${formattedContribution} ${tokenSymbol} for Turn ${circle?.currentPeriod}.`;
+  } else {
+    contributeReason = 'Contribution conditions not met.';
+  }
+
+
+
+  // Member-specific flags (Requirement 4)
   const canFlagLeaving = Boolean(
+    connected &&
+    publicKey &&
     userMember &&
     userMember.status === 'Active' &&
     !userMember.leaving &&
     (circle?.status === 'Active' || circle?.status === 'Filling')
   );
 
+  let flagLeavingReason = '';
+  if (!connected) {
+    flagLeavingReason = 'Connect your wallet to flag leaving.';
+  } else if (!userMember) {
+    flagLeavingReason = 'Wallet is not a member of this circle.';
+  } else if (userMember.leaving) {
+    flagLeavingReason = 'Leaving already flagged for your seat.';
+  } else if (circle?.status !== 'Active' && circle?.status !== 'Filling') {
+    flagLeavingReason = 'Flag leaving is only available while Active or Filling.';
+  } else if (canFlagLeaving) {
+    flagLeavingReason = 'Flag leaving so your deposit is returned at reset.';
+  }
+
   const canExitMember = Boolean(
+    connected &&
+    publicKey &&
     userMember &&
     userMember.status === 'Active' &&
     ((circle?.status === 'Filling' && userMember.leaving) || circle?.status === 'Closing')
   );
+
+  let exitMemberReason = '';
+  if (!connected) {
+    exitMemberReason = 'Connect your wallet to exit circle.';
+  } else if (!userMember) {
+    exitMemberReason = 'Wallet is not a member of this circle.';
+  } else if (circle?.status !== 'Filling' && circle?.status !== 'Closing') {
+    exitMemberReason = 'Exit is only available when circle is Filling (if flagged) or Closing.';
+  } else if (circle?.status === 'Filling' && !userMember.leaving) {
+    exitMemberReason = 'Must flag leaving before exiting during Filling window.';
+  } else if (canExitMember) {
+    exitMemberReason = 'Ready to exit circle and reclaim remaining deposit.';
+  }
+
+  // Closing recovery & forfeit evaluations (Requirement 4)
+  const canClaimRefund = Boolean(
+    connected &&
+    publicKey &&
+    userMember &&
+    userMember.status === 'Active' &&
+    userMember.lastContributedPeriod >= 1 &&
+    userMember.lastContributedPeriod === circle?.currentPeriod &&
+    (circle?.contributionsThisPeriod || 0) > 0 &&
+    (circle?.status === 'Closing' || (circle?.status === 'Filling' && circle?.periodRefundable))
+  );
+
+  let claimRefundReason = '';
+  if (!connected) {
+    claimRefundReason = 'Connect your wallet to claim refund.';
+  } else if (!userMember) {
+    claimRefundReason = 'Wallet is not a member of this circle.';
+  } else if (circle?.status !== 'Closing' && !(circle?.status === 'Filling' && circle?.periodRefundable)) {
+    claimRefundReason = 'Refunds are only available when circle is Closing or refundable.';
+  } else if (userMember.lastContributedPeriod !== circle?.currentPeriod || userMember.lastContributedPeriod < 1) {
+    claimRefundReason = 'No payment in the current turn to refund.';
+  } else if ((circle?.contributionsThisPeriod || 0) <= 0) {
+    claimRefundReason = 'No refundable contributions remaining.';
+  } else if (canClaimRefund) {
+    claimRefundReason = `Ready to claim refund of ${formattedContribution} ${tokenSymbol}.`;
+  }
+
+  const forfeitPerClaimantBN = circle?.forfeitPerClaimant
+    ? new BN(circle.forfeitPerClaimant.toString())
+    : new BN(0);
+  const forfeitPoolRemainingBN = circle?.forfeitPoolRemaining
+    ? new BN(circle.forfeitPoolRemaining.toString())
+    : new BN(0);
+  const formattedForfeitAmount = formatTokenAmount(forfeitPerClaimantBN, tokenDecimals);
+
+  const canClaimForfeit = Boolean(
+    connected &&
+    publicKey &&
+    userMember &&
+    userMember.status === 'Active' &&
+    !userMember.hasBeenPaid &&
+    !userMember.forfeitClaimed &&
+    circle?.status === 'Closing' &&
+    forfeitPerClaimantBN.gt(new BN(0)) &&
+    forfeitPoolRemainingBN.gte(forfeitPerClaimantBN)
+  );
+
+  let claimForfeitReason = '';
+  if (!connected) {
+    claimForfeitReason = 'Connect your wallet to claim forfeit share.';
+  } else if (!userMember) {
+    claimForfeitReason = 'Wallet is not a member of this circle.';
+  } else if (circle?.status !== 'Closing') {
+    claimForfeitReason = 'Forfeit shares are only distributed when circle is Closing.';
+  } else if (userMember.hasBeenPaid) {
+    claimForfeitReason = 'Member already received full pot in a previous turn.';
+  } else if (userMember.forfeitClaimed) {
+    claimForfeitReason = 'Forfeit compensation already claimed.';
+  } else if (forfeitPerClaimantBN.isZero()) {
+    claimForfeitReason = 'No forfeit compensation recorded in this circle.';
+  } else if (forfeitPoolRemainingBN.lt(forfeitPerClaimantBN)) {
+    claimForfeitReason = 'Forfeit pool has been fully claimed.';
+  } else if (canClaimForfeit) {
+    claimForfeitReason = `Ready to claim forfeit share of ${formattedForfeitAmount} ${tokenSymbol}.`;
+  }
 
   /**
    * Section 5, Instruction 2: Join Circle
@@ -850,6 +992,136 @@ export const CircleView: FC<CircleViewProps> = ({
     }
   };
 
+  /**
+   * Section 5, Instruction 8: Claim Refund
+   * Allowed when circle is Closing or Filling with periodRefundable
+   */
+  const handleClaimRefund = async () => {
+    if (!connected || !publicKey) {
+      setTxError({ message: 'Connect your wallet to continue.' });
+      return;
+    }
+    if (!circle || !userMember) {
+      setTxError({ message: 'You are not a registered member of this circle.' });
+      return;
+    }
+
+    setTxPending(true);
+    setTxPendingMsg('Claiming contribution refund...');
+    setTxError(null);
+    setTxSuccess(null);
+
+    try {
+      const preInstructions: TransactionInstruction[] = [];
+      const { ata: memberAta, instruction: createAtaIx } = await getOrCreateAtaInstruction(
+        connection,
+        circle.tokenMint,
+        publicKey,
+        publicKey
+      );
+      if (createAtaIx) {
+        preInstructions.push(createAtaIx);
+      }
+
+      const program = getSolthriftProgram(connection, wallet as any);
+      const method = program.methods
+        .claimRefund()
+        .accounts({
+          circle: circle.address,
+          member: userMember.memberPda,
+          tokenMint: circle.tokenMint,
+          memberTokenAccount: memberAta,
+          vault: circle.vault,
+          memberWallet: publicKey,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        });
+
+      if (preInstructions.length > 0) {
+        method.preInstructions(preInstructions);
+      }
+
+      const sig = await method.rpc();
+      setTxSuccess({
+        signature: sig,
+        message: 'You claimed your contribution refund.',
+      });
+
+      await loadCircleData(circle.address.toBase58(), true);
+    } catch (err: any) {
+      console.error('claimRefund failed:', err);
+      const translated = translateProgramError(err);
+      setTxError({ message: translated.message, details: translated.details });
+    } finally {
+      setTxPending(false);
+      setTxPendingMsg(null);
+    }
+  };
+
+  /**
+   * Section 5, Instruction 9: Claim Forfeit
+   * Allowed when circle is Closing to distribute forfeited deposit pool to unpaid members
+   */
+  const handleClaimForfeit = async () => {
+    if (!connected || !publicKey) {
+      setTxError({ message: 'Connect your wallet to continue.' });
+      return;
+    }
+    if (!circle || !userMember) {
+      setTxError({ message: 'You are not a registered member of this circle.' });
+      return;
+    }
+
+    setTxPending(true);
+    setTxPendingMsg('Claiming forfeit compensation...');
+    setTxError(null);
+    setTxSuccess(null);
+
+    try {
+      const preInstructions: TransactionInstruction[] = [];
+      const { ata: memberAta, instruction: createAtaIx } = await getOrCreateAtaInstruction(
+        connection,
+        circle.tokenMint,
+        publicKey,
+        publicKey
+      );
+      if (createAtaIx) {
+        preInstructions.push(createAtaIx);
+      }
+
+      const program = getSolthriftProgram(connection, wallet as any);
+      const method = program.methods
+        .claimForfeit()
+        .accounts({
+          circle: circle.address,
+          member: userMember.memberPda,
+          tokenMint: circle.tokenMint,
+          memberTokenAccount: memberAta,
+          vault: circle.vault,
+          memberWallet: publicKey,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        });
+
+      if (preInstructions.length > 0) {
+        method.preInstructions(preInstructions);
+      }
+
+      const sig = await method.rpc();
+      setTxSuccess({
+        signature: sig,
+        message: 'You claimed your forfeit share.',
+      });
+
+      await loadCircleData(circle.address.toBase58(), true);
+    } catch (err: any) {
+      console.error('claimForfeit failed:', err);
+      const translated = translateProgramError(err);
+      setTxError({ message: translated.message, details: translated.details });
+    } finally {
+      setTxPending(false);
+      setTxPendingMsg(null);
+    }
+  };
+
   return (
     <div className="page-container">
       {/* Search Bar */}
@@ -1096,10 +1368,10 @@ export const CircleView: FC<CircleViewProps> = ({
                       <button
                         type="button"
                         className="icon-action-btn"
-                        onClick={() => loadCircleData(circle.address.toBase58())}
+                        onClick={() => loadCircleData(circle.address.toBase58(), true)}
                         title="Refresh data"
                       >
-                        <RefreshCw size={14} />
+                        <RefreshCw size={14} className={isRefreshing ? 'spinner-icon' : ''} />
                       </button>
                     </div>
                   </div>
@@ -1334,7 +1606,7 @@ export const CircleView: FC<CircleViewProps> = ({
                       type="button"
                       id="manual-refresh-btn"
                       className="btn-secondary"
-                      onClick={() => loadCircleData(circle.address.toBase58(), false)}
+                      onClick={() => loadCircleData(circle.address.toBase58(), true)}
                       disabled={isRefreshing || loading}
                       style={{ padding: '0.35rem 0.75rem', fontSize: '0.75rem', gap: '0.35rem' }}
                       title="Refresh circle state from the Solana test network"
@@ -1378,8 +1650,8 @@ export const CircleView: FC<CircleViewProps> = ({
                 </div>
               )}
 
-              <div className="triggers-action-list" style={{ marginTop: '1rem' }}>
-                {/* Trigger 1: Pay out to <member> */}
+              <div className="triggers-action-list" style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                {/* 1. Pay out to <member> */}
                 <div className="trigger-item">
                   <button
                     type="button"
@@ -1400,14 +1672,18 @@ export const CircleView: FC<CircleViewProps> = ({
                       </>
                     )}
                   </button>
-                  <div className="trigger-status-reason">
+                  <div className="trigger-status-reason" style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                      <Clock size={12} className="text-amber" />
+                      <span>Countdown: <strong style={{ color: '#ffffff', fontFamily: 'monospace' }}>{payoutCountdown}</strong></span>
+                    </span>
                     <span className={`reason-text ${canPayout ? 'text-green' : 'disabled'}`}>
-                      <Clock size={13} /> {payoutReason}
+                      {canPayout ? <CheckCircle size={13} /> : <AlertTriangle size={13} />} {payoutReason}
                     </span>
                   </div>
                 </div>
 
-                {/* Trigger 2: Remove late member */}
+                {/* 2. Remove late member */}
                 <div className="trigger-item">
                   <button
                     type="button"
@@ -1428,30 +1704,203 @@ export const CircleView: FC<CircleViewProps> = ({
                       </>
                     )}
                   </button>
-                  <div className="trigger-status-reason">
+                  <div className="trigger-status-reason" style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                      <Clock size={12} className="text-amber" />
+                      <span>Countdown: <strong style={{ color: '#ffffff', fontFamily: 'monospace' }}>{removeDefaulterCountdown}</strong></span>
+                    </span>
                     <span className={`reason-text ${canRemoveDefaulter ? 'text-green' : 'disabled'}`}>
-                      <Clock size={13} /> {removeDefaulterReason}
+                      {canRemoveDefaulter ? <CheckCircle size={13} /> : <AlertTriangle size={13} />} {removeDefaulterReason}
                     </span>
                   </div>
                 </div>
 
-                {/* Trigger 3: Start states */}
+                {/* 3. Contribute <amount> */}
                 <div className="trigger-item">
                   <button
                     type="button"
-                    id="trigger-start-btn"
-                    className="trigger-action-btn btn-disabled"
-                    disabled
+                    id="trigger-contribute-btn"
+                    className={`trigger-action-btn ${canContribute ? 'btn-primary' : 'btn-disabled'}`}
+                    disabled={!canContribute || txPending}
+                    onClick={handleContribute}
                   >
-                    <Award size={16} />
-                    {startButtonLabel}
+                    {txPending && txPendingMsg?.includes('Paying turn') ? (
+                      <>
+                        <Loader2 size={16} className="spinner-icon" />
+                        Paying turn...
+                      </>
+                    ) : (
+                      <>
+                        <Coins size={16} />
+                        Contribute {formattedContribution} {tokenSymbol}
+                      </>
+                    )}
                   </button>
-                  <div className="trigger-status-reason">
-                    <span className="reason-text disabled">
-                      <Clock size={13} /> {startReason}
+                  <div className="trigger-status-reason" style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                      <Clock size={12} className="text-amber" />
+                      <span>Countdown: <strong style={{ color: '#ffffff', fontFamily: 'monospace' }}>{contributeCountdown}</strong></span>
+                    </span>
+                    <span className={`reason-text ${canContribute ? 'text-green' : 'disabled'}`}>
+                      {canContribute ? <CheckCircle size={13} /> : <AlertTriangle size={13} />} {contributeReason}
                     </span>
                   </div>
                 </div>
+
+                {/* 4. Closing Recovery & Settlement Actions (Requirement 4) */}
+                {circle.status === 'Closing' && (
+                  <div
+                    className="closing-actions-box"
+                    style={{
+                      marginTop: '0.5rem',
+                      padding: '1rem',
+                      borderRadius: '12px',
+                      background: 'rgba(239, 68, 68, 0.05)',
+                      border: '1px solid rgba(239, 68, 68, 0.2)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.75rem',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <AlertTriangle size={16} className="text-red" />
+                      <strong style={{ fontSize: '0.85rem', color: '#ffffff' }}>Circle is Closing: Settlements & Claims</strong>
+                    </div>
+
+                    {/* Claim Refund */}
+                    <div className="trigger-item">
+                      <button
+                        type="button"
+                        id="claim-refund-btn"
+                        className={`trigger-action-btn ${canClaimRefund ? 'btn-primary' : 'btn-disabled'}`}
+                        disabled={!canClaimRefund || txPending}
+                        onClick={handleClaimRefund}
+                      >
+                        {txPending && txPendingMsg?.includes('Claiming contribution refund') ? (
+                          <>
+                            <Loader2 size={16} className="spinner-icon" />
+                            Claiming refund...
+                          </>
+                        ) : (
+                          <>
+                            <Coins size={16} />
+                            Claim contribution refund ({formattedContribution} {tokenSymbol})
+                          </>
+                        )}
+                      </button>
+                      <div className="trigger-status-reason">
+                        <span className={`reason-text ${canClaimRefund ? 'text-green' : 'disabled'}`}>
+                          <Info size={13} /> {claimRefundReason}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Claim Forfeit */}
+                    <div className="trigger-item">
+                      <button
+                        type="button"
+                        id="claim-forfeit-btn"
+                        className={`trigger-action-btn ${canClaimForfeit ? 'btn-primary' : 'btn-disabled'}`}
+                        disabled={!canClaimForfeit || txPending}
+                        onClick={handleClaimForfeit}
+                      >
+                        {txPending && txPendingMsg?.includes('Claiming forfeit compensation') ? (
+                          <>
+                            <Loader2 size={16} className="spinner-icon" />
+                            Claiming forfeit share...
+                          </>
+                        ) : (
+                          <>
+                            <Award size={16} />
+                            Claim forfeit compensation ({formattedForfeitAmount} {tokenSymbol})
+                          </>
+                        )}
+                      </button>
+                      <div className="trigger-status-reason">
+                        <span className={`reason-text ${canClaimForfeit ? 'text-green' : 'disabled'}`}>
+                          <Info size={13} /> {claimForfeitReason}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Exit Member during Closing */}
+                    {userMember && userMember.status === 'Active' && (
+                      <div className="trigger-item">
+                        <button
+                          type="button"
+                          id="closing-exit-btn"
+                          className={`trigger-action-btn ${canExitMember ? 'btn-primary' : 'btn-disabled'}`}
+                          disabled={!canExitMember || txPending}
+                          onClick={() => handleExitMember()}
+                        >
+                          {txPending && txPendingMsg?.includes('Exiting circle') ? (
+                            <>
+                              <Loader2 size={16} className="spinner-icon" />
+                              Exiting circle...
+                            </>
+                          ) : (
+                            <>
+                              <LogOut size={16} />
+                              Exit circle & reclaim deposit
+                            </>
+                          )}
+                        </button>
+                        <div className="trigger-status-reason">
+                          <span className={`reason-text ${canExitMember ? 'text-green' : 'disabled'}`}>
+                            <Info size={13} /> {exitMemberReason}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* 5. Member Lifecycle: flagLeaving and exitMember where program allows */}
+                {userMember && userMember.status === 'Active' && circle.status !== 'Closing' && (
+                  <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    {canFlagLeaving && (
+                      <div className="trigger-item" style={{ flex: 1, minWidth: '180px' }}>
+                        <button
+                          type="button"
+                          id="member-flag-leaving-btn"
+                          className="btn-secondary trigger-action-btn"
+                          disabled={txPending}
+                          onClick={() => handleFlagLeaving()}
+                          title="Flag leaving so your deposit is returned when the circle resets"
+                        >
+                          <LogOut size={14} />
+                          Flag leaving
+                        </button>
+                        <div className="trigger-status-reason">
+                          <span className="reason-text text-green" style={{ fontSize: '0.72rem' }}>
+                            <Info size={12} /> {flagLeavingReason}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
+                    {canExitMember && (
+                      <div className="trigger-item" style={{ flex: 1, minWidth: '180px' }}>
+                        <button
+                          type="button"
+                          id="member-exit-btn"
+                          className="btn-primary trigger-action-btn"
+                          disabled={txPending}
+                          onClick={() => handleExitMember()}
+                          title="Reclaim your deposit and exit this circle"
+                        >
+                          <LogOut size={14} />
+                          Exit circle
+                        </button>
+                        <div className="trigger-status-reason">
+                          <span className="reason-text text-green" style={{ fontSize: '0.72rem' }}>
+                            <Info size={12} /> {exitMemberReason}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1646,6 +2095,32 @@ export const CircleView: FC<CircleViewProps> = ({
                                       title="Exit circle and reclaim deposit"
                                     >
                                       <LogOut size={12} /> Exit circle
+                                    </button>
+                                  )}
+                                  {circle.status === 'Closing' && canClaimRefund && (
+                                    <button
+                                      type="button"
+                                      id={`member-card-claim-refund-${member.slot}`}
+                                      className="btn-primary"
+                                      style={{ padding: '0.35rem 0.75rem', fontSize: '0.75rem', gap: '0.3rem' }}
+                                      disabled={txPending}
+                                      onClick={handleClaimRefund}
+                                      title="Claim contribution refund"
+                                    >
+                                      <Coins size={12} /> Claim refund
+                                    </button>
+                                  )}
+                                  {circle.status === 'Closing' && canClaimForfeit && (
+                                    <button
+                                      type="button"
+                                      id={`member-card-claim-forfeit-${member.slot}`}
+                                      className="btn-primary"
+                                      style={{ padding: '0.35rem 0.75rem', fontSize: '0.75rem', gap: '0.3rem' }}
+                                      disabled={txPending}
+                                      onClick={handleClaimForfeit}
+                                      title="Claim forfeit share"
+                                    >
+                                      <Award size={12} /> Claim forfeit
                                     </button>
                                   )}
                                 </>

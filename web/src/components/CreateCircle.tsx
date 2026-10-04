@@ -55,7 +55,8 @@ const PERIOD_OPTIONS = [
 ];
 
 const GRACE_OPTIONS = [
-  { value: '0 seconds', label: '0 seconds / 0 minutes (instant)' },
+  { value: '0 minutes', label: '0 minutes (instant)' },
+  { value: '0 seconds', label: '0 seconds' },
   { value: '1 minute', label: '1 minute (test)' },
   { value: '6 hours', label: '6 hours (demo)' },
   { value: '12 hours', label: '12 hours' },
@@ -648,6 +649,7 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
                 previewContribution={contribution.toString()}
                 previewDepositPct={depositPct}
                 tokenSymbol={token}
+                tokenDecimals={mintDecimals}
               />
 
               <div style={{ width: '100%', marginTop: '1rem', paddingTop: '0.85rem', borderTop: '1px solid var(--glass-border-subtle)', display: 'flex', justifyContent: 'space-between', fontSize: '0.825rem', color: 'var(--text-muted)' }}>
