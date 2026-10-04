@@ -3,10 +3,81 @@
    Inspired by Reference (Poppins + Instrument Serif italic, Dark Charcoal Glass)
    ============================================================================ */
 
+/* ============================================================================
+   SELF-HOSTED FONTS (Latin subset only, font-display: block)
+   ============================================================================ */
+@font-face {
+  font-family: 'Poppins';
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url('/fonts/poppins-latin-400-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Poppins';
+  font-style: normal;
+  font-weight: 500;
+  font-display: block;
+  src: url('/fonts/poppins-latin-500-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Poppins';
+  font-style: normal;
+  font-weight: 600;
+  font-display: block;
+  src: url('/fonts/poppins-latin-600-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Instrument Serif';
+  font-style: italic;
+  font-weight: 400;
+  font-display: block;
+  src: url('/fonts/instrument-serif-latin-400-italic.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* Metric-matched fallback font overrides to prevent layout shifts */
+@font-face {
+  font-family: 'Poppins-Fallback';
+  src: local('Arial');
+  ascent-override: 105%;
+  descent-override: 35%;
+  line-gap-override: 10%;
+  size-adjust: 98%;
+}
+
+@font-face {
+  font-family: 'InstrumentSerif-Fallback';
+  src: local('Georgia');
+  ascent-override: 95%;
+  descent-override: 25%;
+  line-gap-override: 0%;
+  size-adjust: 102%;
+}
+
+/* Font readiness gate: hide body until fonts load (max 1s fallback) */
+html.fonts-loading body {
+  opacity: 0 !important;
+  visibility: hidden !important;
+}
+
+html.fonts-ready body,
+html:not(.fonts-loading) body {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.15s ease-out;
+}
+
 :root {
   /* Typography */
-  --font-sans: 'Poppins', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --font-serif: 'Instrument Serif', Georgia, serif;
+  --font-sans: 'Poppins', 'Poppins-Fallback', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-serif: 'Instrument Serif', 'InstrumentSerif-Fallback', Georgia, serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 
   /* Palette: Near-black to charcoal */
@@ -92,7 +163,7 @@ body {
 }
 
 /* ============================================================================
-   SATURN PLANETARY BACKDROP (Pure CSS & Dual-Layer Depth)
+   SATURN PLANETARY BACKDROP (Pure CSS & SVG, Realistic Physics & Depth)
    ============================================================================ */
 .planet-backdrop-root {
   position: fixed;
@@ -102,10 +173,24 @@ body {
   z-index: 0;
 }
 
+/* Tiny static celestial stars in the backdrop */
+.saturn-star {
+  position: absolute;
+  border-radius: 50%;
+  background: #ffffff;
+  pointer-events: none;
+}
+.saturn-star.star-1 { top: 18%; left: 64%; width: 2px; height: 2px; opacity: 0.55; }
+.saturn-star.star-2 { top: 30%; left: 82%; width: 3px; height: 3px; opacity: 0.7; box-shadow: 0 0 5px rgba(255, 255, 255, 0.8); }
+.saturn-star.star-3 { top: 46%; left: 89%; width: 2px; height: 2px; opacity: 0.45; }
+.saturn-star.star-4 { top: 66%; left: 74%; width: 2px; height: 2px; opacity: 0.5; }
+.saturn-star.star-5 { top: 22%; left: 42%; width: 2px; height: 2px; opacity: 0.4; }
+.saturn-star.star-6 { top: 84%; left: 56%; width: 3px; height: 3px; opacity: 0.6; }
+
 .saturn-system {
   position: absolute;
-  width: 960px;
-  height: 960px;
+  width: 820px;
+  height: 820px;
   transform-origin: center center;
   transition: transform 1.2s cubic-bezier(0.16, 1, 0.3, 1),
               opacity 1.2s ease,
@@ -116,18 +201,32 @@ body {
 
 /* Home / Landing Placement: Large, partly off right and bottom behind glass panels */
 .planet-backdrop-home .saturn-system {
-  right: -80px;
-  bottom: -110px;
-  transform: scale(1.1);
+  right: -60px;
+  bottom: -80px;
+  transform: scale(1.05);
   opacity: 0.85;
 }
 
 /* Subpage (Circle / Create) Placement: Smaller, dimmer, further to corner */
 .planet-backdrop-subpage .saturn-system {
-  right: -180px;
-  bottom: -220px;
+  right: -150px;
+  bottom: -190px;
   transform: scale(0.64);
   opacity: 0.32;
+}
+
+/* Faint atmospheric haze around the planetary globe */
+.saturn-atmosphere-glow {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 380px;
+  height: 350px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(207, 200, 187, 0.08) 0%, rgba(207, 200, 187, 0.03) 55%, transparent 72%);
+  pointer-events: none;
+  z-index: 0;
 }
 
 /* Dual Ring Container rotated along Saturn's orbital axis (-18deg) */
@@ -139,92 +238,96 @@ body {
   justify-content: center;
   transform: rotate(-18deg);
   pointer-events: none;
+  background: transparent;
 }
 
-/* Back Ring: Clipped to upper half (y <= 50.5%), passes BEHIND the planet */
+/* Back Ring: Clipped to upper half (y <= 50%), passes BEHIND the planet */
 .saturn-ring-container.ring-back {
   z-index: 1;
-  clip-path: polygon(-40% -40%, 140% -40%, 140% 50.5%, -40% 50.5%);
+  clip-path: polygon(-50% -50%, 150% -50%, 150% 50%, -50% 50%);
 }
 
-/* Front Ring: Clipped to lower half (y >= 49.5%), passes IN FRONT OF the planet */
+/* Front Ring: Clipped to lower half (y >= 50%), passes IN FRONT OF the planet */
 .saturn-ring-container.ring-front {
   z-index: 3;
-  clip-path: polygon(-40% 49.5%, 140% 49.5%, 140% 140%, -40% 140%);
+  clip-path: polygon(-50% 50%, 150% 50%, 150% 150%, -50% 150%);
 }
 
-/* Tilted ring plane (rotateX 72deg) */
+/* Tilted ring plane (rotateX 72deg, width 748px = 2.2x planet width 340px) */
 .saturn-ring-tilt {
   position: absolute;
-  width: 960px;
-  height: 960px;
+  width: 748px;
+  height: 748px;
   transform: rotateX(72deg);
   display: flex;
   align-items: center;
   justify-content: center;
+  pointer-events: none;
 }
 
 /* Celestial scale: Tiny distant moon (Enceladus) */
 .saturn-moon {
   position: absolute;
-  top: 25%;
-  left: 17%;
+  top: 26%;
+  left: 19%;
   width: 5px;
   height: 5px;
   border-radius: 50%;
   background: #ffffff;
   box-shadow: 0 0 6px 1px rgba(255, 255, 255, 0.9),
-              0 0 16px 3px rgba(220, 235, 255, 0.4);
+              0 0 16px 3px rgba(207, 200, 187, 0.45);
   pointer-events: none;
   z-index: 1;
 }
 
-/* Ring Surface with Concentric Bands, Cassini Division, Encke Division & F Ring */
+/* Ring Surface with Concentric Bands, Cassini Division, Encke Division & F Ring
+   Palette: desaturated warm grey (#cfc8bb at brightest, dimmed for 4.5:1 text contrast)
+   Inner edge: 54.5% disk radius = 1.2x planet radius (204px / 374px) */
 .saturn-ring-surface {
   position: absolute;
-  width: 960px;
-  height: 960px;
+  width: 748px;
+  height: 748px;
   border-radius: 50%;
   background: radial-gradient(
     circle,
     transparent 0%,
-    transparent 45.8%,
-    /* Ring C (Crepe Ring: dusky, semi-transparent) */
-    rgba(255, 255, 255, 0.03) 46.2%,
-    rgba(200, 210, 220, 0.08) 49%,
-    rgba(255, 255, 255, 0.04) 51%,
-    rgba(220, 230, 240, 0.11) 53.5%,
-    /* Inner boundary of Ring B */
-    rgba(240, 245, 250, 0.24) 54.2%,
-    rgba(255, 255, 255, 0.35) 58%,
-    rgba(215, 225, 235, 0.22) 61.5%,
-    rgba(255, 255, 255, 0.38) 65.5%,
-    rgba(230, 240, 250, 0.26) 69%,
-    rgba(255, 255, 255, 0.36) 73.8%,
+    transparent 54.2%,
+    /* Ring C (Crepe Ring: dusky, semi-transparent warm grey) */
+    rgba(180, 175, 164, 0.05) 54.5%,
+    rgba(207, 200, 187, 0.09) 56.5%,
+    rgba(175, 170, 160, 0.06) 58.2%,
+    /* Inner boundary of Ring B (dense and bright) */
+    rgba(207, 200, 187, 0.22) 58.6%,
+    rgba(207, 200, 187, 0.35) 62.5%,
+    rgba(188, 182, 170, 0.24) 66.0%,
+    rgba(207, 200, 187, 0.36) 70.0%,
+    rgba(195, 189, 178, 0.28) 72.8%,
+    rgba(207, 200, 187, 0.34) 73.8%,
     /* Cassini Division (Crisp, true transparent dark gap) */
     transparent 74.2%,
     transparent 77.2%,
     /* Ring A (Outer broad ring) */
-    rgba(235, 245, 255, 0.28) 77.5%,
-    rgba(210, 220, 230, 0.20) 81.5%,
-    rgba(240, 245, 255, 0.27) 85.6%,
+    rgba(198, 192, 180, 0.26) 77.6%,
+    rgba(175, 169, 158, 0.18) 81.5%,
+    rgba(205, 198, 186, 0.24) 85.4%,
     /* Encke Division (Fine gap) */
-    transparent 86.1%,
-    transparent 86.8%,
+    transparent 85.8%,
+    transparent 86.6%,
     /* Ring A outer band */
-    rgba(210, 220, 230, 0.22) 87.2%,
-    rgba(180, 190, 200, 0.12) 89.4%,
+    rgba(190, 184, 172, 0.20) 87.0%,
+    rgba(165, 160, 150, 0.11) 89.2%,
     /* Keeler gap / outer edge falloff */
-    transparent 89.9%,
-    transparent 91.4%,
+    transparent 89.6%,
+    transparent 92.2%,
     /* F Ring (Delicate faint outer thread ring) */
-    rgba(255, 255, 255, 0.12) 91.8%,
-    rgba(255, 255, 255, 0.18) 92.2%,
-    transparent 92.6%,
+    rgba(207, 200, 187, 0.14) 92.5%,
+    rgba(207, 200, 187, 0.18) 93.2%,
+    transparent 93.6%,
     transparent 100%
   );
   animation: saturnRingSpin 90s linear infinite;
   will-change: transform;
+  pointer-events: none;
 }
 
 /* Concentric Micro-groove Ringlets (Density wave lines) */
@@ -236,12 +339,12 @@ body {
     circle,
     transparent 0px,
     transparent 1.5px,
-    rgba(255, 255, 255, 0.05) 2px,
-    rgba(0, 0, 0, 0.06) 2.5px,
+    rgba(207, 200, 187, 0.05) 2px,
+    rgba(10, 10, 10, 0.07) 2.5px,
     transparent 3.2px
   );
-  mask-image: radial-gradient(circle, transparent 46%, black 48%, black 89.5%, transparent 93%);
-  -webkit-mask-image: radial-gradient(circle, transparent 46%, black 48%, black 89.5%, transparent 93%);
+  mask-image: radial-gradient(circle, transparent 54.2%, black 55%, black 89.5%, transparent 93.8%);
+  -webkit-mask-image: radial-gradient(circle, transparent 54.2%, black 55%, black 89.5%, transparent 93.8%);
   mix-blend-mode: overlay;
   pointer-events: none;
 }
@@ -253,51 +356,69 @@ body {
   border-radius: 50%;
   background: repeating-conic-gradient(
     from 0deg,
-    rgba(255, 255, 255, 0.09) 0deg 2deg,
-    rgba(0, 0, 0, 0.07) 2deg 5deg,
-    rgba(255, 255, 255, 0.06) 5deg 10deg,
+    rgba(207, 200, 187, 0.08) 0deg 2deg,
+    rgba(0, 0, 0, 0.08) 2deg 5deg,
+    rgba(207, 200, 187, 0.05) 5deg 10deg,
     transparent 10deg 15deg
   );
   mix-blend-mode: overlay;
-  mask-image: radial-gradient(circle, transparent 46%, black 48%, black 90%, transparent 92%);
-  -webkit-mask-image: radial-gradient(circle, transparent 46%, black 48%, black 90%, transparent 92%);
+  mask-image: radial-gradient(circle, transparent 54.2%, black 55%, black 90%, transparent 93.8%);
+  -webkit-mask-image: radial-gradient(circle, transparent 54.2%, black 55%, black 90%, transparent 93.8%);
   pointer-events: none;
 }
 
-/* Planet Shadow cast onto the back ring (realistic parabolic dark silhouette) */
+/* Planet Shadow cast onto the back ring
+   Strictly masked to ring radial geometry: cannot leak into open sky or touch the pill! */
 .saturn-planet-shadow-on-ring {
   position: absolute;
-  top: 13%;
+  top: 14%;
   left: 48%;
-  width: 280px;
-  height: 250px;
-  transform: rotate(26deg);
+  width: 250px;
+  height: 230px;
+  transform: rotate(20deg);
   background: radial-gradient(
     ellipse at 35% 45%,
-    rgba(2, 4, 3, 0.98) 0%,
-    rgba(4, 6, 5, 0.92) 55%,
-    rgba(6, 8, 7, 0.50) 72%,
-    transparent 84%
+    rgba(6, 8, 7, 0.96) 0%,
+    rgba(8, 10, 9, 0.88) 55%,
+    rgba(10, 12, 11, 0.40) 75%,
+    transparent 90%
   );
+  mask-image: radial-gradient(circle, transparent 54%, black 56%, black 93%, transparent 95%);
+  -webkit-mask-image: radial-gradient(circle, transparent 54%, black 56%, black 93%, transparent 95%);
   pointer-events: none;
 }
 
-/* Planet Body (Oblate gas sphere with authentic 7% equatorial bulge) */
+/* Planet Body (Oblate gas sphere with authentic 7.6% polar oblateness) */
 .saturn-planet-body {
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 348px;
-  height: 326px; /* 7% polar flattening */
+  width: 340px;
+  height: 314px;
   transform: translate(-50%, -50%);
   border-radius: 50%;
   overflow: hidden;
   z-index: 2;
   pointer-events: none;
-  filter: drop-shadow(-2px -2px 14px rgba(240, 245, 255, 0.12));
+  box-shadow: 0 0 20px rgba(207, 200, 187, 0.05);
 }
 
-/* Primary Latitudinal Atmospheric Belts */
+/* Base desaturated warm-grey tone */
+.saturn-base-tone {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: radial-gradient(
+    ellipse at 32% 28%,
+    #cfc8bb 0%,
+    #a8a192 35%,
+    #6e685c 65%,
+    #23211c 88%,
+    #080908 100%
+  );
+}
+
+/* Primary Latitudinal Atmospheric Belts of uneven width and opacity */
 .saturn-clouds-strip {
   position: absolute;
   top: -25%;
@@ -306,28 +427,29 @@ body {
   height: 150%;
   background-image: repeating-linear-gradient(
     180deg,
-    rgba(255, 255, 255, 0.06) 0px,
-    rgba(255, 255, 255, 0.06) 8px,
-    rgba(0, 0, 0, 0.05) 8px,
-    rgba(0, 0, 0, 0.05) 14px,
-    rgba(255, 255, 255, 0.10) 14px,
-    rgba(255, 255, 255, 0.10) 24px,
-    rgba(0, 0, 0, 0.07) 24px,
-    rgba(0, 0, 0, 0.07) 36px,
-    rgba(255, 255, 255, 0.14) 36px,
-    rgba(255, 255, 255, 0.14) 52px,
-    rgba(0, 0, 0, 0.06) 52px,
-    rgba(0, 0, 0, 0.06) 66px,
-    rgba(255, 255, 255, 0.08) 66px,
-    rgba(255, 255, 255, 0.08) 78px,
-    rgba(0, 0, 0, 0.08) 78px,
-    rgba(0, 0, 0, 0.08) 92px
+    rgba(207, 200, 187, 0.07) 0px,
+    rgba(207, 200, 187, 0.07) 5px,
+    rgba(30, 28, 25, 0.06) 5px,
+    rgba(30, 28, 25, 0.06) 13px,
+    rgba(207, 200, 187, 0.12) 13px,
+    rgba(207, 200, 187, 0.12) 26px,
+    rgba(20, 19, 17, 0.08) 26px,
+    rgba(20, 19, 17, 0.08) 35px,
+    rgba(207, 200, 187, 0.15) 35px,
+    rgba(207, 200, 187, 0.15) 54px,
+    rgba(30, 28, 25, 0.07) 54px,
+    rgba(30, 28, 25, 0.07) 64px,
+    rgba(207, 200, 187, 0.09) 64px,
+    rgba(207, 200, 187, 0.09) 82px,
+    rgba(15, 14, 12, 0.09) 82px,
+    rgba(15, 14, 12, 0.09) 96px
   );
   animation: saturnCloudDrift 85s linear infinite;
   will-change: transform;
+  pointer-events: none;
 }
 
-/* Secondary Micro-Wave Ammonia Cloud Bands */
+/* Secondary Fine Ammonia Cloud Bands */
 .saturn-clouds-fine {
   position: absolute;
   top: -20%;
@@ -336,12 +458,12 @@ body {
   height: 140%;
   background-image: repeating-linear-gradient(
     180deg,
-    rgba(255, 255, 255, 0.04) 0px,
-    rgba(255, 255, 255, 0.04) 3px,
+    rgba(207, 200, 187, 0.05) 0px,
+    rgba(207, 200, 187, 0.05) 3px,
     transparent 3px,
-    transparent 7px,
-    rgba(0, 0, 0, 0.04) 7px,
-    rgba(0, 0, 0, 0.04) 11px
+    transparent 8px,
+    rgba(0, 0, 0, 0.05) 8px,
+    rgba(0, 0, 0, 0.05) 12px
   );
   mix-blend-mode: overlay;
   animation: saturnCloudDriftFine 65s linear infinite;
@@ -349,74 +471,81 @@ body {
   pointer-events: none;
 }
 
-/* Polar Darkening / Hexagon Hood */
+/* Static SVG feTurbulence cloud texture (rendered once, not animated) */
+.saturn-clouds-turbulence {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  filter: url(#saturn-cloud-turbulence);
+  opacity: 0.18;
+  mix-blend-mode: soft-light;
+  pointer-events: none;
+}
+
+/* Polar Darkening Hood */
 .saturn-polar-hood {
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
-  height: 38%;
+  height: 36%;
   background: radial-gradient(
-    ellipse at 45% 15%,
-    rgba(0, 0, 0, 0.45) 0%,
-    rgba(0, 0, 0, 0.20) 60%,
+    ellipse at 50% 12%,
+    rgba(8, 9, 8, 0.55) 0%,
+    rgba(12, 14, 13, 0.25) 55%,
     transparent 85%
   );
   pointer-events: none;
 }
 
-/* Realistic Ring Shadow cast onto Saturn's sunlit clouds (with Cassini sunlight pass) */
+/* Realistic Ring Shadow across the planet just below the ring (with Cassini sunlight pass) */
 .saturn-ring-shadow-on-planet {
   position: absolute;
-  top: 48%;
+  top: 51%;
   left: -10%;
   width: 120%;
-  height: 26px;
+  height: 22px;
   transform: rotate(-18deg);
   background: linear-gradient(
     180deg,
-    /* Ring B shadow */
-    rgba(0, 0, 0, 0.88) 0px,
-    rgba(0, 0, 0, 0.84) 9px,
-    /* Cassini Division sunlight pass */
-    rgba(0, 0, 0, 0.18) 10px,
-    rgba(0, 0, 0, 0.16) 13px,
-    /* Ring A shadow */
-    rgba(0, 0, 0, 0.78) 14px,
-    rgba(0, 0, 0, 0.65) 21px,
-    /* F-ring / outer edge fade */
-    transparent 26px
+    rgba(4, 5, 4, 0.92) 0px,
+    rgba(6, 7, 6, 0.88) 8px,
+    rgba(207, 200, 187, 0.15) 9px,
+    rgba(207, 200, 187, 0.12) 11px,
+    rgba(4, 5, 4, 0.82) 12px,
+    rgba(6, 7, 6, 0.65) 18px,
+    transparent 22px
   );
-  filter: blur(1px);
+  filter: blur(0.7px);
   pointer-events: none;
 }
 
-/* 3D Volumetric Spherical Shading: realistic terminator & limb falloff */
+/* 3D Volumetric Spherical Shading: upper-left light, soft lower-right terminator, limb darkening */
 .saturn-sphere-shading {
   position: absolute;
   inset: 0;
   border-radius: 50%;
   background: radial-gradient(
-    circle at 30% 28%,
-    rgba(245, 248, 252, 0.36) 0%,
-    rgba(195, 205, 215, 0.18) 26%,
-    rgba(95, 105, 115, 0.22) 50%,
-    rgba(20, 24, 25, 0.72) 68%,
-    rgba(4, 6, 5, 0.98) 88%,
-    #030504 100%
+    circle at 30% 26%,
+    rgba(207, 200, 187, 0.32) 0%,
+    rgba(168, 161, 146, 0.18) 28%,
+    rgba(85, 80, 72, 0.22) 52%,
+    rgba(24, 23, 20, 0.75) 70%,
+    rgba(6, 8, 7, 0.98) 90%,
+    #030403 100%
   );
-  box-shadow: inset -45px -45px 95px rgba(0, 0, 0, 0.98),
-              inset 16px 16px 32px rgba(255, 255, 255, 0.12);
+  box-shadow: inset -45px -45px 95px rgba(2, 3, 2, 0.98),
+              inset 14px 14px 28px rgba(207, 200, 187, 0.12);
   pointer-events: none;
 }
 
-/* Atmospheric Rayleigh scattering glow along the sunlit crescent limb */
+/* Atmospheric Rayleigh crescent limb glow */
 .saturn-atmosphere-rim {
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  box-shadow: inset 4px 4px 14px rgba(255, 255, 255, 0.38),
-              inset 1px 1px 3px rgba(255, 255, 255, 0.65);
+  box-shadow: inset 4px 4px 14px rgba(207, 200, 187, 0.32),
+              inset 1px 1px 3px rgba(255, 255, 255, 0.55);
   mask-image: radial-gradient(circle at 28% 26%, black 48%, transparent 68%);
   -webkit-mask-image: radial-gradient(circle at 28% 26%, black 48%, transparent 68%);
   pointer-events: none;
@@ -432,7 +561,7 @@ body {
   }
 }
 
-/* Macro cloud drift keyframe */
+/* Macro cloud drift keyframe: surface appears to turn */
 @keyframes saturnCloudDrift {
   from {
     transform: rotate(-18deg) translateX(0);
@@ -461,7 +590,7 @@ body {
   }
 
   .saturn-system {
-    transform: scale(0.62) !important;
+    transform: scale(0.58) !important;
     right: -130px !important;
     bottom: -150px !important;
     opacity: 0.38 !important;
@@ -489,7 +618,7 @@ body {
   }
 }
 
-/* Respect prefers-reduced-motion: static display */
+/* Respect prefers-reduced-motion: freeze all background animations */
 @media (prefers-reduced-motion: reduce) {
   .saturn-ring-surface,
   .saturn-clouds-strip,
@@ -2737,6 +2866,8 @@ a.btn-secondary,
   align-items: center;
   gap: 1rem;
   flex-wrap: wrap;
+  position: relative;
+  z-index: 10;
 }
 
 .devnet-status-pill {
@@ -2752,6 +2883,8 @@ a.btn-secondary,
   align-items: center;
   gap: 0.55rem;
   min-height: 42px;
+  position: relative;
+  z-index: 10;
 }
 
 @keyframes pulseGlow {
