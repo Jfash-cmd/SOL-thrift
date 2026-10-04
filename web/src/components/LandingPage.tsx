@@ -308,7 +308,9 @@ export const LandingPage: FC<LandingPageProps> = ({
             </div>
 
             <div className="landing-wallet-container">
-              <WalletMultiButton className="landing-wallet-btn">Connect wallet</WalletMultiButton>
+              <WalletMultiButton className="landing-wallet-btn">
+                {wallet.publicKey ? undefined : 'Connect wallet'}
+              </WalletMultiButton>
             </div>
           </div>
         </Reveal>
