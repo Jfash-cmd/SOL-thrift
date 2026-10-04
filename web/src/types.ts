@@ -168,10 +168,11 @@ export function calculateSlotDepositBN(
  */
 export function formatTokenAmount(rawAmount: BN | number | string, decimals: number = 6): string {
   const bn = new BN(rawAmount.toString());
+  if (decimals <= 0) return bn.toString();
   const factor = new BN(10).pow(new BN(decimals));
   const whole = bn.div(factor);
-  const frac = bn.mod(factor).toString().padStart(decimals, '0').slice(0, 2);
-  return frac === '00' ? whole.toString() : `${whole.toString()}.${frac}`;
+  const frac = bn.mod(factor).toString().padStart(decimals, '0').slice(0, Math.min(decimals, 2));
+  return frac === '00' || frac === '' ? whole.toString() : `${whole.toString()}.${frac}`;
 }
 
 /**

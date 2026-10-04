@@ -20,6 +20,7 @@ import { SolthriftLogo } from './SolthriftLogo';
 import { Reveal } from './Reveal';
 import { parseCircleStatus, formatTokenAmount } from '../types';
 import { isPlaceholderMint, PROGRAM_ID } from '../config';
+import { getMintDecimals } from '../solthriftClient';
 
 interface LandingPageProps {
   onNavigateCreate: () => void;
@@ -95,6 +96,7 @@ export const LandingPage: FC<LandingPageProps> = ({
 
   // On-chain circles state
   const [circles, setCircles] = useState<RawCircleItem[]>([]);
+  const [mintDecimalsMap, setMintDecimalsMap] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState<boolean>(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
@@ -123,6 +125,21 @@ export const LandingPage: FC<LandingPageProps> = ({
       });
 
       setCircles(sorted);
+
+      // Fetch mint decimals for unique mints at runtime
+      const uniqueMints = Array.from(new Set(sorted.map((item) => item.account.tokenMint.toBase58())));
+      const decMap: Record<string, number> = {};
+      await Promise.all(
+        uniqueMints.map(async (mintStr) => {
+          try {
+            const dec = await getMintDecimals(connection, new PublicKey(mintStr));
+            decMap[mintStr] = dec;
+          } catch {
+            decMap[mintStr] = 6;
+          }
+        })
+      );
+      setMintDecimalsMap(decMap);
     } catch (err: any) {
       console.error('Failed to fetch circles from devnet:', err);
       setFetchError('Unable to load circles from Solana devnet. Check your connection.');
@@ -341,9 +358,10 @@ export const LandingPage: FC<LandingPageProps> = ({
               const timing = getTimingLabel(account);
 
               // Calculate pot per period: membersTarget * contribution
+              const mintDecimals = mintDecimalsMap[account.tokenMint.toBase58()] ?? 6;
               const potFormatted = formatTokenAmount(
                 account.contribution.muln(account.membersTarget),
-                6
+                mintDecimals
               );
 
               return (
