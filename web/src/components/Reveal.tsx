@@ -62,7 +62,7 @@ export const Reveal: FC<RevealProps> = ({
       return;
     }
 
-    // Respect prefers-reduced-motion immediately
+    // If prefers-reduced-motion is enabled, show immediately
     if (
       typeof window !== 'undefined' &&
       window.matchMedia &&
@@ -77,19 +77,11 @@ export const Reveal: FC<RevealProps> = ({
     const node = elementRef.current;
     if (!node) return;
 
-    // Safety fallback: Reveal after 1.5 seconds if observer never triggers
-    const fallbackTimer = setTimeout(() => {
-      setIsRevealed(true);
-      setAnimationCompleted(true);
-      if (revealKey) revealedSessionKeys.add(revealKey);
-    }, 1500);
-
     // If IntersectionObserver is unavailable, reveal immediately
     if (typeof IntersectionObserver === 'undefined') {
       setIsRevealed(true);
       setAnimationCompleted(true);
       if (revealKey) revealedSessionKeys.add(revealKey);
-      clearTimeout(fallbackTimer);
       return;
     }
 
@@ -99,19 +91,18 @@ export const Reveal: FC<RevealProps> = ({
         if (entry && entry.isIntersecting) {
           setIsRevealed(true);
           if (revealKey) revealedSessionKeys.add(revealKey);
-          clearTimeout(fallbackTimer);
           observer.unobserve(node);
         }
       },
       {
-        threshold: 0.15, // Start when about 15% of element is visible
+        threshold: 0.08, // Trigger when 8% enters viewport
+        rootMargin: '0px 0px -40px 0px', // Responsive scroll trigger zone
       }
     );
 
     observer.observe(node);
 
     return () => {
-      clearTimeout(fallbackTimer);
       if (node) observer.unobserve(node);
     };
   }, [isAlreadyRevealed, isRevealed, revealKey]);

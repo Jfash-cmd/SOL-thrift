@@ -25,6 +25,7 @@ import { calculateSlotDeposit, calculateSlotShortfall } from '../types';
 import { DEVNET_TOKEN_MINT, isPlaceholderMint } from '../config';
 import { CircleRing } from './CircleRing';
 import { GlassSelect } from './GlassSelect';
+import { Reveal } from './Reveal';
 import {
   getSolthriftProgram,
   getCirclePda,
@@ -296,19 +297,22 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
 
   return (
     <div className="page-container">
-      <div className="page-header">
-        <h1 className="page-title">
-          Save together,{' '}
-          <span className="font-serif-italic">without trusting anyone.</span>
-        </h1>
-        <p className="page-subtitle">
-          Configure savings circle parameters on Solana.
-        </p>
-      </div>
+      <Reveal revealKey="create-circle-header">
+        <div className="page-header">
+          <h1 className="page-title">
+            Save together,{' '}
+            <span className="font-serif-italic">without trusting anyone.</span>
+          </h1>
+          <p className="page-subtitle">
+            Configure savings circle parameters on Solana.
+          </p>
+        </div>
+      </Reveal>
 
       <div className="create-layout-split">
         {/* Form Column */}
-        <section className="card form-card" aria-labelledby="form-heading">
+        <Reveal revealKey="create-circle-form" style={{ flex: 1, minWidth: 0 }}>
+          <section className="card form-card" aria-labelledby="form-heading">
           <h2 id="form-heading" className="card-title">
             <Coins size={18} className="text-accent" />
             Circle parameters
@@ -623,117 +627,122 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
               )}
             </div>
           </form>
-        </section>
+          </section>
+        </Reveal>
 
         {/* Right Column: Live Ring Preview + Deposit Table, stacked on phone */}
         <div className="create-layout-right">
           {/* Live Ring Preview Card */}
-          <section className="card ring-preview-card" aria-labelledby="ring-preview-heading" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-            <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-              <h2 id="ring-preview-heading" className="card-title" style={{ margin: 0, fontSize: '1rem' }}>
-                Circle ring preview
-              </h2>
-              <span className="badge-pill">{depositPct}% deposit</span>
-            </div>
+          <Reveal revealKey="create-circle-ring-preview">
+            <section className="card ring-preview-card" aria-labelledby="ring-preview-heading" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                <h2 id="ring-preview-heading" className="card-title" style={{ margin: 0, fontSize: '1rem' }}>
+                  Circle ring preview
+                </h2>
+                <span className="badge-pill">{depositPct}% deposit</span>
+              </div>
 
-            <CircleRing
-              isPreview={true}
-              previewMembersTarget={members}
-              previewContribution={contribution.toString()}
-              previewDepositPct={depositPct}
-              tokenSymbol={token}
-            />
+              <CircleRing
+                isPreview={true}
+                previewMembersTarget={members}
+                previewContribution={contribution.toString()}
+                previewDepositPct={depositPct}
+                tokenSymbol={token}
+              />
 
-            <div style={{ width: '100%', marginTop: '1rem', paddingTop: '0.85rem', borderTop: '1px solid var(--glass-border-subtle)', display: 'flex', justifyContent: 'space-between', fontSize: '0.825rem', color: 'var(--text-muted)' }}>
-              <span>Seat 1 (Creator) locks {slotBreakdown.slots[0]?.deposit} {token}</span>
-              <span>Pot each turn: {slotBreakdown.potPerPeriod} {token}</span>
-            </div>
-          </section>
+              <div style={{ width: '100%', marginTop: '1rem', paddingTop: '0.85rem', borderTop: '1px solid var(--glass-border-subtle)', display: 'flex', justifyContent: 'space-between', fontSize: '0.825rem', color: 'var(--text-muted)' }}>
+                <span>Seat 1 (Creator) locks {slotBreakdown.slots[0]?.deposit} {token}</span>
+                <span>Pot each turn: {slotBreakdown.potPerPeriod} {token}</span>
+              </div>
+            </section>
+          </Reveal>
 
           {/* Breakdown Column: Section 6 Formula & Seat Schedule */}
-          <section className="card summary-card" aria-labelledby="breakdown-heading">
-            <div className="card-header-row">
-              <h2 id="breakdown-heading" className="card-title">
-                Deposit schedule
-              </h2>
-              <span className="badge-spec">Formula: max(pct × (N-k) × c, c)</span>
-            </div>
-
-            <p className="card-desc">
-              A member in seat <strong>k</strong> locks{' '}
-              <code>max({depositPct}% × ({members} - k) × {contribution}, {contribution})</code>.
-              The minimum deposit covers at least one missed payment.
-            </p>
-
-            {/* Quick Metrics */}
-            <div className="metrics-banner">
-              <div className="metric-box">
-                <span className="metric-label">Pot each turn</span>
-                <span className="metric-value">
-                  {slotBreakdown.potPerPeriod} <small>{token}</small>
-                </span>
+          <Reveal revealKey="create-circle-summary">
+            <section className="card summary-card" aria-labelledby="breakdown-heading">
+              <div className="card-header-row">
+                <h2 id="breakdown-heading" className="card-title">
+                  Deposit schedule
+                </h2>
+                <span className="badge-spec">Formula: max(pct × (N-k) × c, c)</span>
               </div>
-              <div className="metric-box">
-                <span className="metric-label">Deposits locked in total</span>
-                <span className="metric-value">
-                  {slotBreakdown.totalDeposits} <small>{token}</small>
-                </span>
-              </div>
-              <div className="metric-box">
-                <span className="metric-label">Number of turns</span>
-                <span className="metric-value">
-                  {members} <small>turns</small>
-                </span>
-              </div>
-            </div>
 
-            {/* Table of Seats */}
-            <div className="table-responsive">
-              <table className="slot-table" aria-label="Deposit requirements per seat">
-                <thead>
-                  <tr>
-                    <th scope="col">Seat</th>
-                    <th scope="col">Gets the pot</th>
-                    <th scope="col">Deposit you lock</th>
-                    <th scope="col">Most the group could lose</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {slotBreakdown.slots.map((item) => (
-                    <tr key={item.slot} className={item.slot === 1 ? 'row-creator' : ''}>
-                      <td>
-                        <span className="slot-pill">Seat {item.slot}</span>
-                        {item.slot === 1 && <span className="tag-creator">Creator</span>}
-                      </td>
-                      <td>
-                        {item.slot === 1 ? 'Turn 1' : item.slot === members ? `Turn ${members} (last)` : `Turn ${item.slot}`}
-                      </td>
-                      <td className="deposit-cell">
-                        <strong>{item.deposit} {token}</strong>
-                      </td>
-                      <td className="shortfall-cell">
-                        {item.shortfall > 0 ? (
-                          <span className="shortfall-val">
-                            <AlertTriangle size={13} className="text-amber" />
-                            {item.shortfall} {token}
-                          </span>
-                        ) : (
-                          <span className="text-muted">0 {token}</span>
-                        )}
-                      </td>
+              <p className="card-desc">
+                A member in seat <strong>k</strong> locks{' '}
+                <code>max({depositPct}% × ({members} - k) × {contribution}, {contribution})</code>.
+                The minimum deposit covers at least one missed payment.
+              </p>
+
+              {/* Quick Metrics */}
+              <div className="metrics-banner">
+                <div className="metric-box">
+                  <span className="metric-label">Pot each turn</span>
+                  <span className="metric-value">
+                    {slotBreakdown.potPerPeriod} <small>{token}</small>
+                  </span>
+                </div>
+                <div className="metric-box">
+                  <span className="metric-label">Deposits locked in total</span>
+                  <span className="metric-value">
+                    {slotBreakdown.totalDeposits} <small>{token}</small>
+                  </span>
+                </div>
+                <div className="metric-box">
+                  <span className="metric-label">Number of turns</span>
+                  <span className="metric-value">
+                    {members} <small>turns</small>
+                  </span>
+                </div>
+              </div>
+
+              {/* Table of Seats */}
+              <div className="table-responsive">
+                <table className="slot-table" aria-label="Deposit requirements per seat">
+                  <thead>
+                    <tr>
+                      <th scope="col">Seat</th>
+                      <th scope="col">Gets the pot</th>
+                      <th scope="col">Deposit you lock</th>
+                      <th scope="col">Most the group could lose</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="spec-note-callout">
-              <Info size={16} className="text-accent" />
-              <div>
-                <strong>Why the deposits are different.</strong> People who get the pot early still owe more turns afterward, so they lock a bigger deposit. The most the group can lose is shown here before anyone joins.
+                  </thead>
+                  <tbody>
+                    {slotBreakdown.slots.map((item) => (
+                      <tr key={item.slot} className={item.slot === 1 ? 'row-creator' : ''}>
+                        <td>
+                          <span className="slot-pill">Seat {item.slot}</span>
+                          {item.slot === 1 && <span className="tag-creator">Creator</span>}
+                        </td>
+                        <td>
+                          {item.slot === 1 ? 'Turn 1' : item.slot === members ? `Turn ${members} (last)` : `Turn ${item.slot}`}
+                        </td>
+                        <td className="deposit-cell">
+                          <strong>{item.deposit} {token}</strong>
+                        </td>
+                        <td className="shortfall-cell">
+                          {item.shortfall > 0 ? (
+                            <span className="shortfall-val">
+                              <AlertTriangle size={13} className="text-amber" />
+                              {item.shortfall} {token}
+                            </span>
+                          ) : (
+                            <span className="text-muted">0 {token}</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-            </div>
-          </section>
+
+              <div className="spec-note-callout">
+                <Info size={16} className="text-accent" />
+                <div>
+                  <strong>Why the deposits are different.</strong> People who get the pot early still owe more turns afterward, so they lock a bigger deposit. The most the group can lose is shown here before anyone joins.
+                </div>
+              </div>
+            </section>
+          </Reveal>
         </div>
       </div>
     </div>

@@ -242,13 +242,15 @@ export const LandingPage: FC<LandingPageProps> = ({
 
         {/* Center: Circular badge with fine ring outline & 3D spinning Solana logo */}
         <div className="landing-hero-center">
-          <div className="landing-center-badge-container">
-            <div className="landing-emblem-badge" role="presentation">
-              <div className="badge-ring-outline"></div>
-              <div className="badge-inner-ring"></div>
-              <SolanaLogo3D size={44} />
+          <Reveal revealKey="landing-badge">
+            <div className="landing-center-badge-container">
+              <div className="landing-emblem-badge" role="presentation">
+                <div className="badge-ring-outline"></div>
+                <div className="badge-inner-ring"></div>
+                <SolanaLogo3D size={44} />
+              </div>
             </div>
-          </div>
+          </Reveal>
 
           {/* Headline */}
           <Reveal revealKey="landing-headline">
@@ -284,11 +286,13 @@ export const LandingPage: FC<LandingPageProps> = ({
         </div>
 
         {/* Left Panel Footer / Meta */}
-        <div className="landing-left-footer">
-          <span className="footer-faint-spec">
-            A savings circle on the Solana test network (devnet).
-          </span>
-        </div>
+        <Reveal revealKey="landing-footer">
+          <div className="landing-left-footer">
+            <span className="footer-faint-spec">
+              A savings circle on the Solana test network (devnet).
+            </span>
+          </div>
+        </Reveal>
       </section>
 
       {/* ====================================================================
@@ -296,26 +300,30 @@ export const LandingPage: FC<LandingPageProps> = ({
           ==================================================================== */}
       <section className="landing-right-panel" aria-label="Live on-chain circles">
         {/* Top Row: Status pill & Connect wallet white pill button */}
-        <div className="landing-right-top-row">
-          <div className="devnet-status-pill">
-            <span className="pulse-green-dot" aria-hidden="true"></span>
-            <span>Running on the Solana test network</span>
-          </div>
+        <Reveal revealKey="landing-right-top-row">
+          <div className="landing-right-top-row">
+            <div className="devnet-status-pill">
+              <span className="pulse-green-dot" aria-hidden="true"></span>
+              <span>Running on the Solana test network</span>
+            </div>
 
-          <div className="landing-wallet-container">
-            <WalletMultiButton className="landing-wallet-btn">Connect wallet</WalletMultiButton>
+            <div className="landing-wallet-container">
+              <WalletMultiButton className="landing-wallet-btn">Connect wallet</WalletMultiButton>
+            </div>
           </div>
-        </div>
+        </Reveal>
 
         {/* Section Header: "Live circles" small label & Page counter */}
-        <div className="section-label-row">
-          <span className="section-label">SAVINGS CIRCLES</span>
-          <span className="section-counter">
-            {loading
-              ? 'Reading records...'
-              : `Page ${currentPage} of ${totalPages} • ${circles.length} indexed`}
-          </span>
-        </div>
+        <Reveal revealKey="landing-section-label">
+          <div className="section-label-row">
+            <span className="section-label">SAVINGS CIRCLES</span>
+            <span className="section-counter">
+              {loading
+                ? 'Reading records...'
+                : `Page ${currentPage} of ${totalPages} • ${circles.length} indexed`}
+            </span>
+          </div>
+        </Reveal>
 
         {/* Loading State */}
         {loading && (
@@ -418,42 +426,44 @@ export const LandingPage: FC<LandingPageProps> = ({
 
         {/* Pagination: "Previous / Next" and page dots */}
         {!loading && circles.length > 0 && (
-          <nav className="landing-pagination" aria-label="Circle pages navigation">
-            <button
-              type="button"
-              className="pagination-nav-btn"
-              disabled={currentPage <= 1}
-              onClick={handlePrevPage}
-            >
-              ← Previous
-            </button>
+          <Reveal revealKey="landing-pagination">
+            <nav className="landing-pagination" aria-label="Circle pages navigation">
+              <button
+                type="button"
+                className="pagination-nav-btn"
+                disabled={currentPage <= 1}
+                onClick={handlePrevPage}
+              >
+                ← Previous
+              </button>
 
-            <div className="pagination-dots" role="tablist" aria-label="Pages">
-              {Array.from({ length: totalPages }, (_, i) => {
-                const pageNumber = i + 1;
-                const isActive = pageNumber === currentPage;
-                return (
-                  <button
-                    key={pageNumber}
-                    type="button"
-                    className={`page-dot ${isActive ? 'active' : ''}`}
-                    onClick={() => setCurrentPage(pageNumber)}
-                    aria-label={`Page ${pageNumber}`}
-                    aria-selected={isActive}
-                  />
-                );
-              })}
-            </div>
+              <div className="pagination-dots" role="tablist" aria-label="Pages">
+                {Array.from({ length: totalPages }, (_, i) => {
+                  const pageNumber = i + 1;
+                  const isActive = pageNumber === currentPage;
+                  return (
+                    <button
+                      key={pageNumber}
+                      type="button"
+                      className={`page-dot ${isActive ? 'active' : ''}`}
+                      onClick={() => setCurrentPage(pageNumber)}
+                      aria-label={`Page ${pageNumber}`}
+                      aria-selected={isActive}
+                    />
+                  );
+                })}
+              </div>
 
-            <button
-              type="button"
-              className="pagination-nav-btn"
-              disabled={currentPage >= totalPages}
-              onClick={handleNextPage}
-            >
-              Next →
-            </button>
-          </nav>
+              <button
+                type="button"
+                className="pagination-nav-btn"
+                disabled={currentPage >= totalPages}
+                onClick={handleNextPage}
+              >
+                Next →
+              </button>
+            </nav>
+          </Reveal>
         )}
       </section>
 
