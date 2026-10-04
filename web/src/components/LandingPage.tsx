@@ -16,6 +16,7 @@ import {
 
 import { getSolthriftProgram } from '../solthriftClient';
 import { SolanaLogo3D } from './SolanaLogo3D';
+import { SolthriftLogo } from './SolthriftLogo';
 import { Reveal } from './Reveal';
 import { parseCircleStatus, formatTokenAmount } from '../types';
 import { isPlaceholderMint, PROGRAM_ID } from '../config';
@@ -158,17 +159,7 @@ export const LandingPage: FC<LandingPageProps> = ({
         {/* Top-left: Wordmark & Top-right: Support & Menu pills */}
         <div className="landing-left-header">
           <div className="landing-wordmark">
-            <svg
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              className="wordmark-symbol"
-              aria-hidden="true"
-            >
-              <circle cx="12" cy="12" r="10" stroke="white" strokeWidth="1.75" strokeDasharray="3.5 3.5" />
-              <circle cx="12" cy="12" r="4.5" fill="white" />
-            </svg>
+            <SolthriftLogo size={26} className="wordmark-symbol" />
             <span className="wordmark-text">solthrift</span>
           </div>
 

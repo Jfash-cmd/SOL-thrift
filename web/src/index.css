@@ -164,7 +164,22 @@ body {
   justify-content: center;
 }
 
-/* Ring Surface with Concentric Bands & Cassini Division */
+/* Celestial scale: Tiny distant moon (Enceladus) */
+.saturn-moon {
+  position: absolute;
+  top: 25%;
+  left: 17%;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 0 6px 1px rgba(255, 255, 255, 0.9),
+              0 0 16px 3px rgba(220, 235, 255, 0.4);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Ring Surface with Concentric Bands, Cassini Division, Encke Division & F Ring */
 .saturn-ring-surface {
   position: absolute;
   width: 960px;
@@ -174,33 +189,64 @@ body {
     circle,
     transparent 0%,
     transparent 45.8%,
-    /* Ring C (Crepe) */
-    rgba(255, 255, 255, 0.04) 46%,
-    rgba(255, 255, 255, 0.08) 50.5%,
-    /* Ring B (Broad bright main ring) */
-    rgba(240, 245, 250, 0.22) 51.5%,
-    rgba(255, 255, 255, 0.32) 56%,
-    rgba(200, 210, 220, 0.18) 60%,
-    rgba(255, 255, 255, 0.34) 65%,
-    rgba(220, 230, 240, 0.24) 70%,
-    rgba(255, 255, 255, 0.30) 73.5%,
-    /* Cassini Division (Crisp dark gap) */
-    transparent 74%,
-    transparent 77%,
-    /* Ring A (Outer ring with faint Encke division) */
-    rgba(220, 230, 240, 0.25) 77.5%,
-    rgba(200, 210, 220, 0.18) 82%,
-    rgba(180, 190, 200, 0.10) 84.5%,
-    rgba(240, 245, 250, 0.20) 87%,
-    rgba(180, 190, 200, 0.08) 90.5%,
-    transparent 91%,
+    /* Ring C (Crepe Ring: dusky, semi-transparent) */
+    rgba(255, 255, 255, 0.03) 46.2%,
+    rgba(200, 210, 220, 0.08) 49%,
+    rgba(255, 255, 255, 0.04) 51%,
+    rgba(220, 230, 240, 0.11) 53.5%,
+    /* Inner boundary of Ring B */
+    rgba(240, 245, 250, 0.24) 54.2%,
+    rgba(255, 255, 255, 0.35) 58%,
+    rgba(215, 225, 235, 0.22) 61.5%,
+    rgba(255, 255, 255, 0.38) 65.5%,
+    rgba(230, 240, 250, 0.26) 69%,
+    rgba(255, 255, 255, 0.36) 73.8%,
+    /* Cassini Division (Crisp, true transparent dark gap) */
+    transparent 74.2%,
+    transparent 77.2%,
+    /* Ring A (Outer broad ring) */
+    rgba(235, 245, 255, 0.28) 77.5%,
+    rgba(210, 220, 230, 0.20) 81.5%,
+    rgba(240, 245, 255, 0.27) 85.6%,
+    /* Encke Division (Fine gap) */
+    transparent 86.1%,
+    transparent 86.8%,
+    /* Ring A outer band */
+    rgba(210, 220, 230, 0.22) 87.2%,
+    rgba(180, 190, 200, 0.12) 89.4%,
+    /* Keeler gap / outer edge falloff */
+    transparent 89.9%,
+    transparent 91.4%,
+    /* F Ring (Delicate faint outer thread ring) */
+    rgba(255, 255, 255, 0.12) 91.8%,
+    rgba(255, 255, 255, 0.18) 92.2%,
+    transparent 92.6%,
     transparent 100%
   );
   animation: saturnRingSpin 90s linear infinite;
   will-change: transform;
 }
 
-/* Fine speckle / spoke texture so rotation is visible */
+/* Concentric Micro-groove Ringlets (Density wave lines) */
+.saturn-ring-microgrooves {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: repeating-radial-gradient(
+    circle,
+    transparent 0px,
+    transparent 1.5px,
+    rgba(255, 255, 255, 0.05) 2px,
+    rgba(0, 0, 0, 0.06) 2.5px,
+    transparent 3.2px
+  );
+  mask-image: radial-gradient(circle, transparent 46%, black 48%, black 89.5%, transparent 93%);
+  -webkit-mask-image: radial-gradient(circle, transparent 46%, black 48%, black 89.5%, transparent 93%);
+  mix-blend-mode: overlay;
+  pointer-events: none;
+}
+
+/* Fine radial spoke texture so rotation is clearly visible */
 .saturn-ring-speckle {
   position: absolute;
   inset: 0;
@@ -218,90 +264,161 @@ body {
   pointer-events: none;
 }
 
-/* Planet Shadow cast onto the back ring (upper right) */
+/* Planet Shadow cast onto the back ring (realistic parabolic dark silhouette) */
 .saturn-planet-shadow-on-ring {
   position: absolute;
-  top: 18%;
-  left: 50%;
-  width: 260px;
-  height: 160px;
+  top: 13%;
+  left: 48%;
+  width: 280px;
+  height: 250px;
+  transform: rotate(26deg);
   background: radial-gradient(
-    ellipse at 35% 50%,
-    rgba(0, 0, 0, 0.72) 0%,
-    rgba(0, 0, 0, 0.35) 55%,
-    transparent 80%
+    ellipse at 35% 45%,
+    rgba(2, 4, 3, 0.98) 0%,
+    rgba(4, 6, 5, 0.92) 55%,
+    rgba(6, 8, 7, 0.50) 72%,
+    transparent 84%
   );
   pointer-events: none;
 }
 
-/* Planet Body (3D Sphere, clipped clouds, dark limb) */
+/* Planet Body (Oblate gas sphere with authentic 7% equatorial bulge) */
 .saturn-planet-body {
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 340px;
-  height: 340px;
+  width: 348px;
+  height: 326px; /* 7% polar flattening */
   transform: translate(-50%, -50%);
   border-radius: 50%;
   overflow: hidden;
   z-index: 2;
   pointer-events: none;
+  filter: drop-shadow(-2px -2px 14px rgba(240, 245, 255, 0.12));
 }
 
-/* Horizontal Cloud Bands drifting sideways inside the sphere */
+/* Primary Latitudinal Atmospheric Belts */
 .saturn-clouds-strip {
   position: absolute;
-  top: -20%;
-  left: -60%;
-  width: 280%;
-  height: 140%;
+  top: -25%;
+  left: -70%;
+  width: 320%;
+  height: 150%;
   background-image: repeating-linear-gradient(
     180deg,
-    rgba(255, 255, 255, 0.08) 0px,
-    rgba(255, 255, 255, 0.08) 6px,
-    rgba(0, 0, 0, 0.06) 6px,
-    rgba(0, 0, 0, 0.06) 12px,
-    rgba(255, 255, 255, 0.12) 12px,
-    rgba(255, 255, 255, 0.12) 22px,
-    rgba(0, 0, 0, 0.08) 22px,
-    rgba(0, 0, 0, 0.08) 32px,
-    rgba(255, 255, 255, 0.06) 32px,
-    rgba(255, 255, 255, 0.06) 44px,
-    rgba(0, 0, 0, 0.05) 44px,
-    rgba(0, 0, 0, 0.05) 54px
+    rgba(255, 255, 255, 0.06) 0px,
+    rgba(255, 255, 255, 0.06) 8px,
+    rgba(0, 0, 0, 0.05) 8px,
+    rgba(0, 0, 0, 0.05) 14px,
+    rgba(255, 255, 255, 0.10) 14px,
+    rgba(255, 255, 255, 0.10) 24px,
+    rgba(0, 0, 0, 0.07) 24px,
+    rgba(0, 0, 0, 0.07) 36px,
+    rgba(255, 255, 255, 0.14) 36px,
+    rgba(255, 255, 255, 0.14) 52px,
+    rgba(0, 0, 0, 0.06) 52px,
+    rgba(0, 0, 0, 0.06) 66px,
+    rgba(255, 255, 255, 0.08) 66px,
+    rgba(255, 255, 255, 0.08) 78px,
+    rgba(0, 0, 0, 0.08) 78px,
+    rgba(0, 0, 0, 0.08) 92px
   );
-  animation: saturnCloudDrift 75s linear infinite;
+  animation: saturnCloudDrift 85s linear infinite;
   will-change: transform;
 }
 
-/* 3D Spherical Shading: upper-left chalk highlight, deep lower-right dark limb */
+/* Secondary Micro-Wave Ammonia Cloud Bands */
+.saturn-clouds-fine {
+  position: absolute;
+  top: -20%;
+  left: -60%;
+  width: 300%;
+  height: 140%;
+  background-image: repeating-linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.04) 0px,
+    rgba(255, 255, 255, 0.04) 3px,
+    transparent 3px,
+    transparent 7px,
+    rgba(0, 0, 0, 0.04) 7px,
+    rgba(0, 0, 0, 0.04) 11px
+  );
+  mix-blend-mode: overlay;
+  animation: saturnCloudDriftFine 65s linear infinite;
+  will-change: transform;
+  pointer-events: none;
+}
+
+/* Polar Darkening / Hexagon Hood */
+.saturn-polar-hood {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 38%;
+  background: radial-gradient(
+    ellipse at 45% 15%,
+    rgba(0, 0, 0, 0.45) 0%,
+    rgba(0, 0, 0, 0.20) 60%,
+    transparent 85%
+  );
+  pointer-events: none;
+}
+
+/* Realistic Ring Shadow cast onto Saturn's sunlit clouds (with Cassini sunlight pass) */
+.saturn-ring-shadow-on-planet {
+  position: absolute;
+  top: 48%;
+  left: -10%;
+  width: 120%;
+  height: 26px;
+  transform: rotate(-18deg);
+  background: linear-gradient(
+    180deg,
+    /* Ring B shadow */
+    rgba(0, 0, 0, 0.88) 0px,
+    rgba(0, 0, 0, 0.84) 9px,
+    /* Cassini Division sunlight pass */
+    rgba(0, 0, 0, 0.18) 10px,
+    rgba(0, 0, 0, 0.16) 13px,
+    /* Ring A shadow */
+    rgba(0, 0, 0, 0.78) 14px,
+    rgba(0, 0, 0, 0.65) 21px,
+    /* F-ring / outer edge fade */
+    transparent 26px
+  );
+  filter: blur(1px);
+  pointer-events: none;
+}
+
+/* 3D Volumetric Spherical Shading: realistic terminator & limb falloff */
 .saturn-sphere-shading {
   position: absolute;
   inset: 0;
   border-radius: 50%;
   background: radial-gradient(
-    circle at 32% 30%,
-    rgba(240, 245, 250, 0.42) 0%,
-    rgba(180, 190, 200, 0.22) 28%,
-    rgba(70, 80, 90, 0.35) 55%,
-    rgba(15, 18, 17, 0.85) 75%,
-    rgba(5, 7, 6, 0.98) 100%
+    circle at 30% 28%,
+    rgba(245, 248, 252, 0.36) 0%,
+    rgba(195, 205, 215, 0.18) 26%,
+    rgba(95, 105, 115, 0.22) 50%,
+    rgba(20, 24, 25, 0.72) 68%,
+    rgba(4, 6, 5, 0.98) 88%,
+    #030504 100%
   );
-  box-shadow: inset -40px -40px 80px rgba(0, 0, 0, 0.96),
-              inset 14px 14px 28px rgba(255, 255, 255, 0.12);
+  box-shadow: inset -45px -45px 95px rgba(0, 0, 0, 0.98),
+              inset 16px 16px 32px rgba(255, 255, 255, 0.12);
   pointer-events: none;
 }
 
-/* Ring Shadow cast onto the planet's equator */
-.saturn-ring-shadow-on-planet {
+/* Atmospheric Rayleigh scattering glow along the sunlit crescent limb */
+.saturn-atmosphere-rim {
   position: absolute;
-  top: 51%;
-  left: -10%;
-  width: 120%;
-  height: 18px;
-  transform: rotate(-18deg);
-  background: linear-gradient(180deg, rgba(0, 0, 0, 0.8) 0%, rgba(0, 0, 0, 0.3) 100%);
-  filter: blur(2px);
+  inset: 0;
+  border-radius: 50%;
+  box-shadow: inset 4px 4px 14px rgba(255, 255, 255, 0.38),
+              inset 1px 1px 3px rgba(255, 255, 255, 0.65);
+  mask-image: radial-gradient(circle at 28% 26%, black 48%, transparent 68%);
+  -webkit-mask-image: radial-gradient(circle at 28% 26%, black 48%, transparent 68%);
   pointer-events: none;
 }
 
@@ -315,7 +432,7 @@ body {
   }
 }
 
-/* Cloud drift keyframe: horizontal translation */
+/* Macro cloud drift keyframe */
 @keyframes saturnCloudDrift {
   from {
     transform: rotate(-18deg) translateX(0);
@@ -325,10 +442,21 @@ body {
   }
 }
 
+/* Fine ammonia cloud drift keyframe */
+@keyframes saturnCloudDriftFine {
+  from {
+    transform: rotate(-18deg) translateX(0);
+  }
+  to {
+    transform: rotate(-18deg) translateX(-28%);
+  }
+}
+
 /* Under 640px width: freeze animation, static planet and ring, reduce blur to 12px */
 @media (max-width: 640px) {
   .saturn-ring-surface,
-  .saturn-clouds-strip {
+  .saturn-clouds-strip,
+  .saturn-clouds-fine {
     animation: none !important;
   }
 
@@ -365,6 +493,7 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .saturn-ring-surface,
   .saturn-clouds-strip,
+  .saturn-clouds-fine,
   .saturn-system {
     animation: none !important;
     transition: none !important;

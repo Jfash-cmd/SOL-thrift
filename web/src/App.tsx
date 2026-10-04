@@ -6,7 +6,7 @@ import { CircleView } from './components/CircleView';
 import { CreateCircle } from './components/CreateCircle';
 import { LandingPage } from './components/LandingPage';
 import { PlanetBackdrop } from './components/PlanetBackdrop';
-import { ShieldCheck, BookOpen, ExternalLink } from 'lucide-react';
+import { BookOpen, ExternalLink } from 'lucide-react';
 
 interface RouteState {
   tab: 'home' | 'circle' | 'create';

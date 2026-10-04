@@ -2,7 +2,8 @@ import type { FC } from 'react';
 import { useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
-import { ShieldCheck, Copy, Check, ExternalLink } from 'lucide-react';
+import { Copy, Check, ExternalLink } from 'lucide-react';
+import { SolthriftLogo } from './SolthriftLogo';
 
 interface NavbarProps {
   activeTab: 'home' | 'circle' | 'create';
@@ -40,7 +41,7 @@ export const Navbar: FC<NavbarProps> = ({ activeTab, setActiveTab, onNavigate })
         {/* Brand / Logo */}
         <div className="brand-group" onClick={() => handleNav('home')} style={{ cursor: 'pointer' }}>
           <div className="brand-icon">
-            <ShieldCheck size={22} className="brand-icon-svg" />
+            <SolthriftLogo size={22} className="brand-icon-svg" />
           </div>
           <div className="brand-text">
             <span className="brand-name">Solthrift</span>
