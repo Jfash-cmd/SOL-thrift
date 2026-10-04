@@ -6,6 +6,7 @@ import { CircleView } from './components/CircleView';
 import { CreateCircle } from './components/CreateCircle';
 import { LandingPage } from './components/LandingPage';
 import { PlanetBackdrop } from './components/PlanetBackdrop';
+import { SolthriftLogo } from './components/SolthriftLogo';
 import { BookOpen, ExternalLink } from 'lucide-react';
 
 interface RouteState {
@@ -114,7 +115,7 @@ export const AppContent: FC = () => {
         <div className="footer-container">
           <div className="footer-left">
             <div className="footer-brand">
-              <ShieldCheck size={18} className="text-accent" />
+              <SolthriftLogo size={18} className="text-accent" />
               <span>Solthrift</span>
             </div>
             <p className="footer-text">
