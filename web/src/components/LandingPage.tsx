@@ -127,7 +127,7 @@ export const LandingPage: FC<LandingPageProps> = ({
       setCircles(sorted);
 
       // Fetch mint decimals for unique mints at runtime
-      const uniqueMints = Array.from(new Set(sorted.map((item) => item.account.tokenMint.toBase58())));
+      const uniqueMints = Array.from(new Set(sorted.map((item) => (item.account as any).tokenMint.toBase58())));
       const decMap: Record<string, number> = {};
       await Promise.all(
         uniqueMints.map(async (mintStr) => {
