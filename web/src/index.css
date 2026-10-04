@@ -888,25 +888,25 @@ a:hover {
   gap: 0.5rem !important;
 }
 
-/* 3D Pure White Wallet icon for Connect wallet trigger button */
+/* Glassy Translucent Wallet icon for Connect wallet trigger button (No Glow) */
 .wallet-adapter-button:not(.wallet-adapter-modal-list .wallet-adapter-button)::before {
   content: '';
   display: inline-block;
-  width: 19px;
-  height: 19px;
-  margin-right: 0.4rem;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' fill='none'%3E%3Cdefs%3E%3ClinearGradient id='wBody' x1='3' y1='5' x2='29' y2='27' gradientUnits='userSpaceOnUse'%3E%3Cstop offset='0%25' stop-color='%23ffffff'/%3E%3Cstop offset='55%25' stop-color='%23edf0f5'/%3E%3Cstop offset='100%25' stop-color='%23cfd5df'/%3E%3C/linearGradient%3E%3ClinearGradient id='wFlap' x1='16' y1='10' x2='29' y2='22' gradientUnits='userSpaceOnUse'%3E%3Cstop offset='0%25' stop-color='%23ffffff'/%3E%3Cstop offset='65%25' stop-color='%23d9dee7'/%3E%3Cstop offset='100%25' stop-color='%23b8bfcd'/%3E%3C/linearGradient%3E%3Cfilter id='wShadow' x='0' y='0' width='32' height='32' filterUnits='userSpaceOnUse'%3E%3CfeDropShadow dx='0' dy='2' stdDeviation='1.5' flood-color='rgba(0,0,0,0.55)'/%3E%3C/filter%3E%3C/defs%3E%3Crect x='3.5' y='6.5' width='25' height='19' rx='4.5' fill='url(%23wBody)' stroke='%23ffffff' stroke-width='1.2' filter='url(%23wShadow)'/%3E%3Cpath d='M5.5 11.5H26.5' stroke='rgba(180,188,200,0.7)' stroke-width='1' stroke-linecap='round'/%3E%3Cpath d='M17 11.5H27.5C28.3 11.5 29 12.2 29 13V19C29 19.8 28.3 20.5 27.5 20.5H17C16.2 20.5 15.5 19.8 15.5 19V13C15.5 12.2 16.2 11.5 17 11.5Z' fill='url(%23wFlap)' stroke='%23ffffff' stroke-width='1'/%3E%3Ccircle cx='22.5' cy='16' r='2' fill='%23ffffff' stroke='%239aa1ae' stroke-width='0.9'/%3E%3Ccircle cx='22.1' cy='15.5' r='0.65' fill='%23ffffff'/%3E%3C/svg%3E");
+  width: 18px;
+  height: 18px;
+  margin-right: 0.45rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' fill='none'%3E%3Cdefs%3E%3ClinearGradient id='gBody' x1='3' y1='5' x2='29' y2='27' gradientUnits='userSpaceOnUse'%3E%3Cstop offset='0%25' stop-color='rgba(255,255,255,0.30)'/%3E%3Cstop offset='60%25' stop-color='rgba(255,255,255,0.12)'/%3E%3Cstop offset='100%25' stop-color='rgba(255,255,255,0.04)'/%3E%3C/linearGradient%3E%3ClinearGradient id='gFlap' x1='16' y1='10' x2='29' y2='22' gradientUnits='userSpaceOnUse'%3E%3Cstop offset='0%25' stop-color='rgba(255,255,255,0.40)'/%3E%3Cstop offset='100%25' stop-color='rgba(255,255,255,0.15)'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='3.5' y='6.5' width='25' height='19' rx='4.5' fill='url(%23gBody)' stroke='rgba(255,255,255,0.7)' stroke-width='1.2'/%3E%3Cpath d='M5.5 11.5H26.5' stroke='rgba(255,255,255,0.4)' stroke-width='1' stroke-linecap='round'/%3E%3Cpath d='M17 11.5H27.5C28.3 11.5 29 12.2 29 13V19C29 19.8 28.3 20.5 27.5 20.5H17C16.2 20.5 15.5 19.8 15.5 19V13C15.5 12.2 16.2 11.5 17 11.5Z' fill='url(%23gFlap)' stroke='rgba(255,255,255,0.75)' stroke-width='1'/%3E%3Ccircle cx='22.5' cy='16' r='2' fill='rgba(255,255,255,0.35)' stroke='rgba(255,255,255,0.85)' stroke-width='0.8'/%3E%3Ccircle cx='22.1' cy='15.5' r='0.6' fill='%23ffffff'/%3E%3C/svg%3E");
   background-size: contain;
   background-repeat: no-repeat;
   background-position: center;
-  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.45)) drop-shadow(0 0 6px rgba(255, 255, 255, 0.55));
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.4));
   flex-shrink: 0;
-  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), filter 0.25s ease;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease;
 }
 
 .wallet-adapter-button:not(.wallet-adapter-modal-list .wallet-adapter-button):hover::before {
-  transform: scale(1.15) translateY(-1px);
-  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.6)) drop-shadow(0 0 10px rgba(255, 255, 255, 0.85));
+  transform: scale(1.08) translateY(-1px);
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5));
 }
 
 .wallet-adapter-button:hover:not(:disabled) {
@@ -946,76 +946,78 @@ a:hover {
 
 /* Modal Dialog Card (Compact & Sleek) */
 .wallet-adapter-modal-wrapper {
-  background: rgba(14, 18, 16, 0.90) !important;
+  background: rgba(14, 18, 16, 0.92) !important;
   backdrop-filter: blur(32px) saturate(140%) !important;
   -webkit-backdrop-filter: blur(32px) saturate(140%) !important;
-  border: 1px solid rgba(255, 255, 255, 0.18) !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 20px 48px rgba(0, 0, 0, 0.85) !important;
-  border-radius: 20px !important;
-  padding: 3.6rem 1.35rem 1.35rem !important;
-  max-width: 385px !important;
+  border: 1px solid rgba(255, 255, 255, 0.16) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 18px 44px rgba(0, 0, 0, 0.85) !important;
+  border-radius: 18px !important;
+  padding: 2.6rem 0.95rem 0.95rem !important;
+  max-width: 300px !important;
   width: 100% !important;
   color: #ffffff !important;
   font-family: var(--font-sans) !important;
   position: relative !important;
 }
 
-/* 3D Pure White Wallet Icon Header when modal is opened (Compact) */
+/* Glassy Translucent Wallet Icon Header when modal is opened (Compact, No Glow) */
 .wallet-adapter-modal-wrapper::before {
   content: '';
   position: absolute;
-  top: 1.15rem;
-  left: 1.35rem;
-  width: 38px;
-  height: 38px;
-  border-radius: 12px;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.05));
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  box-shadow: 
-    0 8px 20px rgba(0, 0, 0, 0.45),
-    inset 0 1px 1px rgba(255, 255, 255, 0.7),
-    0 0 16px rgba(255, 255, 255, 0.2);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' fill='none'%3E%3Cdefs%3E%3ClinearGradient id='wBody' x1='3' y1='5' x2='29' y2='27' gradientUnits='userSpaceOnUse'%3E%3Cstop offset='0%25' stop-color='%23ffffff'/%3E%3Cstop offset='55%25' stop-color='%23edf0f5'/%3E%3Cstop offset='100%25' stop-color='%23cfd5df'/%3E%3C/linearGradient%3E%3ClinearGradient id='wFlap' x1='16' y1='10' x2='29' y2='22' gradientUnits='userSpaceOnUse'%3E%3Cstop offset='0%25' stop-color='%23ffffff'/%3E%3Cstop offset='65%25' stop-color='%23d9dee7'/%3E%3Cstop offset='100%25' stop-color='%23b8bfcd'/%3E%3C/linearGradient%3E%3Cfilter id='wShadow' x='0' y='0' width='32' height='32' filterUnits='userSpaceOnUse'%3E%3CfeDropShadow dx='0' dy='2' stdDeviation='1.5' flood-color='rgba(0,0,0,0.55)'/%3E%3C/filter%3E%3C/defs%3E%3Crect x='3.5' y='6.5' width='25' height='19' rx='4.5' fill='url(%23wBody)' stroke='%23ffffff' stroke-width='1.2' filter='url(%23wShadow)'/%3E%3Cpath d='M5.5 11.5H26.5' stroke='rgba(180,188,200,0.7)' stroke-width='1' stroke-linecap='round'/%3E%3Cpath d='M17 11.5H27.5C28.3 11.5 29 12.2 29 13V19C29 19.8 28.3 20.5 27.5 20.5H17C16.2 20.5 15.5 19.8 15.5 19V13C15.5 12.2 16.2 11.5 17 11.5Z' fill='url(%23wFlap)' stroke='%23ffffff' stroke-width='1'/%3E%3Ccircle cx='22.5' cy='16' r='2' fill='%23ffffff' stroke='%239aa1ae' stroke-width='0.9'/%3E%3Ccircle cx='22.1' cy='15.5' r='0.65' fill='%23ffffff'/%3E%3C/svg%3E");
-  background-size: 24px 24px;
+  top: 0.9rem;
+  left: 0.95rem;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 2px 6px rgba(0, 0, 0, 0.35);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' fill='none'%3E%3Cdefs%3E%3ClinearGradient id='gBody' x1='3' y1='5' x2='29' y2='27' gradientUnits='userSpaceOnUse'%3E%3Cstop offset='0%25' stop-color='rgba(255,255,255,0.30)'/%3E%3Cstop offset='60%25' stop-color='rgba(255,255,255,0.12)'/%3E%3Cstop offset='100%25' stop-color='rgba(255,255,255,0.04)'/%3E%3C/linearGradient%3E%3ClinearGradient id='gFlap' x1='16' y1='10' x2='29' y2='22' gradientUnits='userSpaceOnUse'%3E%3Cstop offset='0%25' stop-color='rgba(255,255,255,0.40)'/%3E%3Cstop offset='100%25' stop-color='rgba(255,255,255,0.15)'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='3.5' y='6.5' width='25' height='19' rx='4.5' fill='url(%23gBody)' stroke='rgba(255,255,255,0.7)' stroke-width='1.2'/%3E%3Cpath d='M5.5 11.5H26.5' stroke='rgba(255,255,255,0.4)' stroke-width='1' stroke-linecap='round'/%3E%3Cpath d='M17 11.5H27.5C28.3 11.5 29 12.2 29 13V19C29 19.8 28.3 20.5 27.5 20.5H17C16.2 20.5 15.5 19.8 15.5 19V13C15.5 12.2 16.2 11.5 17 11.5Z' fill='url(%23gFlap)' stroke='rgba(255,255,255,0.75)' stroke-width='1'/%3E%3Ccircle cx='22.5' cy='16' r='2' fill='rgba(255,255,255,0.35)' stroke='rgba(255,255,255,0.85)' stroke-width='0.8'/%3E%3Ccircle cx='22.1' cy='15.5' r='0.6' fill='%23ffffff'/%3E%3C/svg%3E");
+  background-size: 18px 18px;
   background-repeat: no-repeat;
   background-position: center;
-  filter: drop-shadow(0 3px 10px rgba(0, 0, 0, 0.4)) drop-shadow(0 0 10px rgba(255, 255, 255, 0.35));
-  transform: perspective(400px) rotateY(-8deg) rotateX(6deg);
-  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), filter 0.3s ease;
+  filter: none !important;
+  transition: transform 0.2s ease, border-color 0.2s ease;
 }
 
 .wallet-adapter-modal-wrapper:hover::before {
-  transform: perspective(400px) rotateY(0deg) rotateX(0deg) scale(1.06);
-  filter: drop-shadow(0 5px 14px rgba(0, 0, 0, 0.5)) drop-shadow(0 0 14px rgba(255, 255, 255, 0.55));
+  transform: scale(1.05);
+  border-color: rgba(255, 255, 255, 0.28);
+  filter: none !important;
 }
 
 .wallet-adapter-modal-title {
   color: #ffffff !important;
   font-family: var(--font-sans) !important;
   font-weight: 600 !important;
-  font-size: 0.92rem !important;
+  font-size: 0.74rem !important;
   letter-spacing: -0.015em !important;
   white-space: nowrap !important;
-  margin-bottom: 0.85rem !important;
+  margin-bottom: 0.6rem !important;
   text-align: left !important;
 }
 
+/* Cancel Button without oval boundary (pure floating X icon) */
 .wallet-adapter-modal-button-close {
-  background: rgba(255, 255, 255, 0.08) !important;
-  border: 1px solid rgba(255, 255, 255, 0.22) !important;
-  border-radius: 50% !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
   color: #ffffff !important;
-  width: 28px !important;
-  height: 28px !important;
+  width: 22px !important;
+  height: 22px !important;
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
   position: absolute !important;
-  top: 1.15rem !important;
-  right: 1.15rem !important;
+  top: 0.9rem !important;
+  right: 0.95rem !important;
   cursor: pointer !important;
   padding: 0 !important;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  opacity: 0.75 !important;
+  transition: opacity 0.2s ease, transform 0.2s ease !important;
 }
 
 .wallet-adapter-modal-button-close svg {
@@ -1026,32 +1028,28 @@ a:hover {
   content: '';
   width: 12px;
   height: 12px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='2.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='18' y1='6' x2='6' y2='18'/%3E%3Cline x1='6' y1='6' x2='18' y2='18'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='18' y1='6' x2='6' y2='18'/%3E%3Cline x1='6' y1='6' x2='18' y2='18'/%3E%3C/svg%3E");
   background-size: contain;
   background-repeat: no-repeat;
   background-position: center;
   display: block;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
-  transition: transform 0.15s ease;
 }
 
 .wallet-adapter-modal-button-close:hover {
-  background: rgba(255, 255, 255, 0.22) !important;
-  border-color: rgba(255, 255, 255, 0.45) !important;
-  transform: scale(1.08) !important;
-}
-
-.wallet-adapter-modal-button-close:hover::after {
-  transform: scale(1.12);
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  opacity: 1 !important;
+  transform: scale(1.15) !important;
 }
 
 .wallet-adapter-modal-list {
-  margin: 0.65rem 0 !important;
+  margin: 0.45rem 0 !important;
   padding: 0 !important;
   list-style: none !important;
   display: flex !important;
   flex-direction: column !important;
-  gap: 0.45rem !important;
+  gap: 0.35rem !important;
 }
 
 .wallet-adapter-modal-list li {
@@ -1059,18 +1057,18 @@ a:hover {
   padding: 0 !important;
 }
 
-/* Wallet Items in Modal */
+/* Wallet Items in Modal (Compact & Glassy) */
 .wallet-adapter-modal-list .wallet-adapter-button {
   width: 100% !important;
-  height: 42px !important;
+  height: 36px !important;
   background: rgba(255, 255, 255, 0.05) !important;
   backdrop-filter: blur(20px) !important;
   -webkit-backdrop-filter: blur(20px) !important;
   border: 1px solid rgba(255, 255, 255, 0.12) !important;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
-  border-radius: 12px !important;
-  padding: 0 0.95rem !important;
-  font-size: 0.875rem !important;
+  border-radius: 10px !important;
+  padding: 0 0.75rem !important;
+  font-size: 0.8rem !important;
   font-weight: 500 !important;
   color: #ffffff !important;
   display: flex !important;
@@ -1080,39 +1078,38 @@ a:hover {
 }
 
 .wallet-adapter-modal-list .wallet-adapter-button:hover {
-  background: rgba(255, 255, 255, 0.14) !important;
-  border-color: rgba(255, 255, 255, 0.34) !important;
+  background: rgba(255, 255, 255, 0.12) !important;
+  border-color: rgba(255, 255, 255, 0.28) !important;
   transform: translateY(-1px) !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.20), 0 6px 18px rgba(0, 0, 0, 0.45) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 4px 12px rgba(0, 0, 0, 0.35) !important;
 }
 
 .wallet-adapter-modal-list .wallet-adapter-button:active {
-  background: rgba(255, 255, 255, 0.22) !important;
+  background: rgba(255, 255, 255, 0.18) !important;
   transform: translateY(0) scale(0.99) !important;
 }
 
-/* 3D White Glass Frame for Wallet Icons in List */
+/* Glass Frame for Wallet Icons in List (No Glow) */
 .wallet-adapter-modal-list .wallet-adapter-button-start-icon {
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  width: 26px !important;
-  height: 26px !important;
-  background: rgba(255, 255, 255, 0.12) !important;
-  border-radius: 8px !important;
-  padding: 3px !important;
-  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.5), 0 2px 6px rgba(0, 0, 0, 0.35) !important;
-  border: 1px solid rgba(255, 255, 255, 0.25) !important;
-  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.4)) !important;
-  transform: perspective(300px) translateZ(2px) !important;
+  width: 22px !important;
+  height: 22px !important;
+  background: rgba(255, 255, 255, 0.10) !important;
+  border-radius: 6px !important;
+  padding: 2px !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 2px 4px rgba(0, 0, 0, 0.25) !important;
+  border: 1px solid rgba(255, 255, 255, 0.20) !important;
+  filter: none !important;
   transition: all 0.2s ease !important;
 }
 
 .wallet-adapter-modal-list .wallet-adapter-button:hover .wallet-adapter-button-start-icon {
-  background: rgba(255, 255, 255, 0.22) !important;
-  border-color: rgba(255, 255, 255, 0.5) !important;
-  transform: perspective(300px) translateZ(4px) scale(1.08) !important;
-  box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.8), 0 3px 8px rgba(0, 0, 0, 0.45), 0 0 8px rgba(255, 255, 255, 0.4) !important;
+  background: rgba(255, 255, 255, 0.18) !important;
+  border-color: rgba(255, 255, 255, 0.38) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 3px 6px rgba(0, 0, 0, 0.3) !important;
+  filter: none !important;
 }
 
 .wallet-adapter-modal-collapse-button {
