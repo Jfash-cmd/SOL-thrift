@@ -30,6 +30,7 @@ import {
   getMemberPda,
   getVaultPda,
   getOrCreateAtaInstruction,
+  getMintDecimals,
   getExplorerUrl,
   translateProgramError,
 } from '../solthriftClient';
@@ -53,6 +54,7 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
 
   // Custom token mint input in case DEVNET_TOKEN_MINT is a placeholder
   const [customMintInput, setCustomMintInput] = useState<string>('');
+  const [mintDecimals, setMintDecimals] = useState<number>(6);
 
   // Transaction states
   const [txState, setTxState] = useState<'idle' | 'pending' | 'success' | 'error'>('idle');
@@ -73,6 +75,15 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
     }
     return hasPlaceholderConfigMint ? null : DEVNET_TOKEN_MINT;
   }, [customMintInput, hasPlaceholderConfigMint]);
+
+  // Read mint decimals at runtime from mint account
+  useEffect(() => {
+    if (activeMint) {
+      getMintDecimals(connection, activeMint)
+        .then((dec) => setMintDecimals(dec))
+        .catch(() => setMintDecimals(6));
+    }
+  }, [activeMint, connection]);
 
   // Validation according to Section 2 and Section 7
   const errors = useMemo(() => {
@@ -96,13 +107,19 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
 
   const isValid = Object.keys(errors).length === 0;
 
-  // Period duration to seconds mapping
+  // Period duration to seconds mapping (Section 2 & hackathon demo tests)
   const periodDurationSeconds = useMemo(() => {
     switch (period) {
       case '20 seconds':
         return 20;
       case '1 minute':
         return 60;
+      case '2 minutes':
+        return 120;
+      case '5 minutes':
+        return 300;
+      case '10 minutes':
+        return 600;
       case '1 day':
         return 86400;
       case '3 days':
@@ -122,7 +139,10 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
   const graceDurationSeconds = useMemo(() => {
     switch (grace) {
       case '0 seconds':
+      case '0 minutes':
         return 0;
+      case '1 minute':
+        return 60;
       case '6 hours':
         return 21600;
       case '12 hours':
@@ -182,8 +202,8 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
       setTxSignature(null);
       setCreatedCircleAddress(null);
 
-      // Section 7 Invariant: 6 decimals factor for contribution base units
-      const decimals = 6;
+      // Section 7 Invariant: Decimals factor read at runtime from mint account
+      const decimals = activeMint ? await getMintDecimals(connection, activeMint) : mintDecimals;
       const baseUnitsFactor = new BN(10).pow(new BN(decimals));
       const contributionBN = new BN(contribution).mul(baseUnitsFactor);
 
@@ -448,6 +468,9 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
                 >
                   <option value="20 seconds">20 seconds (Devnet fast test)</option>
                   <option value="1 minute">1 minute (Devnet test)</option>
+                  <option value="2 minutes">2 minutes (Devnet test)</option>
+                  <option value="5 minutes">5 minutes (Devnet test)</option>
+                  <option value="10 minutes">10 minutes (Devnet test)</option>
                   <option value="1 day">1 day (demo)</option>
                   <option value="3 days">3 days</option>
                   <option value="1 week">1 week (production)</option>
@@ -466,7 +489,8 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
                   value={grace}
                   onChange={(e) => setGrace(e.target.value)}
                 >
-                  <option value="0 seconds">0 seconds (Devnet fast test)</option>
+                  <option value="0 seconds">0 seconds / 0 minutes (instant)</option>
+                  <option value="1 minute">1 minute (Devnet test)</option>
                   <option value="6 hours">6 hours (demo)</option>
                   <option value="12 hours">12 hours</option>
                   <option value="24 hours">24 hours</option>

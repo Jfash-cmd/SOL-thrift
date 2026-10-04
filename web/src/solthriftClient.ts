@@ -9,6 +9,7 @@ import type { AnchorWallet } from '@solana/wallet-adapter-react';
 import {
   getAssociatedTokenAddressSync,
   createAssociatedTokenAccountInstruction,
+  getMint,
   TOKEN_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
 } from '@solana/spl-token';
@@ -124,6 +125,30 @@ export async function getOrCreateAtaInstruction(
   }
 
   return { ata, instruction: null };
+}
+
+/**
+ * Reads token decimals from the SPL Mint account at runtime on-chain
+ */
+export async function getMintDecimals(
+  connection: Connection,
+  mint: PublicKey
+): Promise<number> {
+  try {
+    const mintInfo = await getMint(connection, mint, 'confirmed');
+    return mintInfo.decimals;
+  } catch {
+    try {
+      const parsedInfo = await connection.getParsedAccountInfo(mint, 'confirmed');
+      if (parsedInfo.value && 'parsed' in parsedInfo.value.data) {
+        const dec = (parsedInfo.value.data as any).parsed?.info?.decimals;
+        if (typeof dec === 'number') return dec;
+      }
+    } catch {
+      // Fallback
+    }
+    return 6;
+  }
 }
 
 /**
