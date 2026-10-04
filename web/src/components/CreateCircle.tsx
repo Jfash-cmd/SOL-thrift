@@ -58,7 +58,7 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
 
   // Transaction states
   const [txState, setTxState] = useState<'idle' | 'pending' | 'success' | 'error'>('idle');
-  const [txError, setTxError] = useState<string | null>(null);
+  const [txError, setTxError] = useState<{ message: string; details?: string } | null>(null);
   const [txSignature, setTxSignature] = useState<string | null>(null);
   const [createdCircleAddress, setCreatedCircleAddress] = useState<string | null>(null);
   const [copiedAddress, setCopiedAddress] = useState<boolean>(false);
@@ -99,7 +99,7 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
     }
     if (!activeMint) {
       errs.mint = hasPlaceholderConfigMint
-        ? 'DEVNET_TOKEN_MINT is a placeholder. Please provide a Devnet token mint address.'
+        ? 'Token mint address is a placeholder. Please provide a token mint address for the test network.'
         : 'Invalid token mint address';
     }
     return errs;
@@ -192,7 +192,7 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
 
     if (!connected || !wallet || !wallet.publicKey) {
       setTxState('error');
-      setTxError('Please connect your Solana wallet first to create a circle.');
+      setTxError({ message: 'Connect your wallet to continue.' });
       return;
     }
 
@@ -259,7 +259,7 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
       console.error('createCircle failed:', err);
       setTxState('error');
       const translated = translateProgramError(err);
-      setTxError(`${translated.name ? translated.name + ': ' : ''}${translated.message}`);
+      setTxError({ message: translated.message, details: translated.details });
     }
   };
 
@@ -279,7 +279,7 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
           <span className="font-serif-italic">without trusting anyone.</span>
         </h1>
         <p className="page-subtitle">
-          Configure rotating thrift parameters with program-enforced partial deposits on Solana.
+          Configure savings circle parameters on Solana.
         </p>
       </div>
 
@@ -295,10 +295,10 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
             {/* Token Selector & Mint Warning */}
             <div className="form-group">
               <label htmlFor="token-select" className="form-label">
-                Stablecoin Token (Devnet Mint)
+                Token on the test network
                 <span
                   className="tooltip-hint"
-                  title="Circles use exactly one token for all deposits, contributions and payouts. Never mixed."
+                  title="Circles use one token for all deposits, payments, and payouts."
                 >
                   <Info size={14} />
                 </span>
@@ -328,25 +328,25 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
                 <div className="alert-box warning-alert" style={{ marginTop: '0.6rem' }}>
                   <AlertTriangle size={16} />
                   <div>
-                    <strong>TODO (Mint Placeholder):</strong> DEVNET_TOKEN_MINT in <code>config.ts</code> is not set yet.
-                    Please provide the Devnet token mint address or enter one below.
+                    <strong>Token address missing:</strong> Token mint in <code>config.ts</code> is not set yet.
+                    Please provide the token mint address or enter one below.
                   </div>
                 </div>
               ) : (
                 <small className="form-hint" style={{ wordBreak: 'break-all' }}>
-                  Configured Devnet Mint: <code>{DEVNET_TOKEN_MINT.toBase58()}</code>
+                  Configured token mint: <code>{DEVNET_TOKEN_MINT.toBase58()}</code>
                 </small>
               )}
 
               {/* Optional Custom Mint Input */}
               <div style={{ marginTop: '0.5rem' }}>
                 <label htmlFor="custom-mint-input" className="form-label" style={{ fontSize: '0.8rem' }}>
-                  Override Token Mint Address (Devnet SPL Token):
+                  Override token mint address (test network SPL token):
                 </label>
                 <input
                   id="custom-mint-input"
                   type="text"
-                  placeholder={hasPlaceholderConfigMint ? 'Paste 32-44 character Devnet Mint address' : 'Optional: override config mint'}
+                  placeholder={hasPlaceholderConfigMint ? 'Paste 32-44 character token address' : 'Optional: override config mint'}
                   value={customMintInput}
                   onChange={(e) => setCustomMintInput(e.target.value)}
                   className={`text-input ${errors.mint ? 'input-error' : ''}`}
@@ -361,7 +361,7 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
               <div className="label-row">
                 <label htmlFor="members-input" className="form-label">
                   <Users size={15} />
-                  Members (N): <strong>{members}</strong>
+                  Members: <strong>{members}</strong>
                 </label>
                 <span className="badge-pill">3 - 10 members</span>
               </div>
@@ -392,7 +392,7 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
             <div className="form-group">
               <div className="label-row">
                 <label htmlFor="contribution-input" className="form-label">
-                  Contribution per Period (c)
+                  Payment each turn
                 </label>
                 <span className="badge-pill">Min 5 {token}</span>
               </div>
@@ -413,7 +413,7 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
                 <p className="error-text" role="alert">{errors.contribution}</p>
               )}
               <small className="form-hint">
-                Paid each period by every active member into the program vault.
+                Paid each turn by every member into the program vault.
               </small>
             </div>
 
@@ -422,7 +422,7 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
               <div className="label-row">
                 <label htmlFor="deposit-pct-input" className="form-label">
                   <Percent size={15} />
-                  Deposit Percentage: <strong>{depositPct}%</strong>
+                  Deposit percentage: <strong>{depositPct}%</strong>
                 </label>
                 <span className="badge-pill">25% - 100%</span>
               </div>
@@ -450,7 +450,7 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
               </div>
               {errors.depositPct && <p className="error-text" role="alert">{errors.depositPct}</p>}
               <small className="form-hint">
-                Share of future dues locked upfront as a security deposit.
+                Share of future payments locked upfront as a deposit.
               </small>
             </div>
 
@@ -458,7 +458,7 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
             <div className="form-row-2">
               <div className="form-group">
                 <label htmlFor="period-select" className="form-label">
-                  <Clock size={15} /> Period Length
+                  <Clock size={15} /> Time per turn
                 </label>
                 <select
                   id="period-select"
@@ -466,11 +466,11 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
                   value={period}
                   onChange={(e) => setPeriod(e.target.value)}
                 >
-                  <option value="20 seconds">20 seconds (Devnet fast test)</option>
-                  <option value="1 minute">1 minute (Devnet test)</option>
-                  <option value="2 minutes">2 minutes (Devnet test)</option>
-                  <option value="5 minutes">5 minutes (Devnet test)</option>
-                  <option value="10 minutes">10 minutes (Devnet test)</option>
+                  <option value="20 seconds">20 seconds (fast test)</option>
+                  <option value="1 minute">1 minute (test)</option>
+                  <option value="2 minutes">2 minutes (test)</option>
+                  <option value="5 minutes">5 minutes (test)</option>
+                  <option value="10 minutes">10 minutes (test)</option>
                   <option value="1 day">1 day (demo)</option>
                   <option value="3 days">3 days</option>
                   <option value="1 week">1 week (production)</option>
@@ -481,7 +481,7 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
 
               <div className="form-group">
                 <label htmlFor="grace-select" className="form-label">
-                  <ShieldAlert size={15} /> Grace Period
+                  <ShieldAlert size={15} /> Extra time to pay
                 </label>
                 <select
                   id="grace-select"
@@ -490,7 +490,7 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
                   onChange={(e) => setGrace(e.target.value)}
                 >
                   <option value="0 seconds">0 seconds / 0 minutes (instant)</option>
-                  <option value="1 minute">1 minute (Devnet test)</option>
+                  <option value="1 minute">1 minute (test)</option>
                   <option value="6 hours">6 hours (demo)</option>
                   <option value="12 hours">12 hours</option>
                   <option value="24 hours">24 hours</option>
@@ -505,7 +505,7 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
               {!connected && (
                 <div className="alert-box warning-alert">
                   <AlertTriangle size={16} />
-                  <span>Wallet not connected. Connect your wallet to create this circle.</span>
+                  <span>Connect your wallet to continue.</span>
                 </div>
               )}
 
@@ -535,7 +535,7 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
               {txState === 'pending' && (
                 <div className="alert-box action-alert">
                   <Loader2 size={18} className="spinner-icon" />
-                  <span>Creating circle on Solana devnet. Approve the transaction in your wallet.</span>
+                  <span>Creating circle on the Solana test network. Approve the transaction in your wallet.</span>
                 </div>
               )}
 
@@ -544,7 +544,7 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
                 <div className="alert-box success-alert" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.6rem' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                     <CheckCircle2 size={18} className="text-green" />
-                    <strong>Created circle on Solana devnet.</strong>
+                    <strong>You created the circle.</strong>
                   </div>
 
                   <div style={{ fontSize: '0.85rem', width: '100%', wordBreak: 'break-all' }}>
@@ -590,7 +590,7 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
                     style={{ marginTop: '0.5rem', width: '100%', padding: '0.6rem' }}
                     onClick={() => onCreated?.(createdCircleAddress)}
                   >
-                    Go to circle page
+                    Go to circle
                     <ArrowRight size={15} />
                   </button>
                 </div>
@@ -601,8 +601,16 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
                 <div className="alert-box error-alert" role="alert">
                   <AlertTriangle size={18} />
                   <div>
-                    <strong>Action failed</strong>
-                    <p style={{ marginTop: '0.25rem' }}>{txError}. Check your SOL balance for transaction fees and try again.</p>
+                    <strong>Could not create circle</strong>
+                    <p style={{ marginTop: '0.25rem' }}>{txError.message}</p>
+                    {txError.details && (
+                      <details className="error-details" style={{ marginTop: '0.4rem', fontSize: '0.75rem' }}>
+                        <summary style={{ cursor: 'pointer' }}>Details</summary>
+                        <code style={{ display: 'block', marginTop: '0.25rem', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                          {txError.details}
+                        </code>
+                      </details>
+                    )}
                   </div>
                 </div>
               )}
@@ -630,12 +638,12 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
             />
 
             <div style={{ width: '100%', marginTop: '1rem', paddingTop: '0.85rem', borderTop: '1px solid var(--glass-border-subtle)', display: 'flex', justifyContent: 'space-between', fontSize: '0.825rem', color: 'var(--text-muted)' }}>
-              <span>Slot 1 (Creator) locks {slotBreakdown.slots[0]?.deposit} {token}</span>
-              <span>Pot: {slotBreakdown.potPerPeriod} {token}</span>
+              <span>Seat 1 (Creator) locks {slotBreakdown.slots[0]?.deposit} {token}</span>
+              <span>Pot each turn: {slotBreakdown.potPerPeriod} {token}</span>
             </div>
           </section>
 
-          {/* Breakdown Column: Section 6 Formula & Slot Schedule */}
+          {/* Breakdown Column: Section 6 Formula & Seat Schedule */}
           <section className="card summary-card" aria-labelledby="breakdown-heading">
             <div className="card-header-row">
               <h2 id="breakdown-heading" className="card-title">
@@ -645,53 +653,53 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
             </div>
 
             <p className="card-desc">
-              A member in slot <strong>k</strong> locks{' '}
+              A member in seat <strong>k</strong> locks{' '}
               <code>max({depositPct}% × ({members} - k) × {contribution}, {contribution})</code>.
-              The floor of one contribution guarantees every member covers at least one missed period.
+              The minimum deposit covers at least one missed payment.
             </p>
 
             {/* Quick Metrics */}
             <div className="metrics-banner">
               <div className="metric-box">
-                <span className="metric-label">Pot per period</span>
+                <span className="metric-label">Pot each turn</span>
                 <span className="metric-value">
                   {slotBreakdown.potPerPeriod} <small>{token}</small>
                 </span>
               </div>
               <div className="metric-box">
-                <span className="metric-label">Total deposits locked</span>
+                <span className="metric-label">Deposits locked in total</span>
                 <span className="metric-value">
                   {slotBreakdown.totalDeposits} <small>{token}</small>
                 </span>
               </div>
               <div className="metric-box">
-                <span className="metric-label">Rounds</span>
+                <span className="metric-label">Number of turns</span>
                 <span className="metric-value">
-                  {members} <small>periods</small>
+                  {members} <small>turns</small>
                 </span>
               </div>
             </div>
 
-            {/* Table of Slots */}
+            {/* Table of Seats */}
             <div className="table-responsive">
-              <table className="slot-table" aria-label="Deposit requirements per slot">
+              <table className="slot-table" aria-label="Deposit requirements per seat">
                 <thead>
                   <tr>
-                    <th scope="col">Slot</th>
-                    <th scope="col">Payout turn</th>
-                    <th scope="col">Deposit locked</th>
-                    <th scope="col">Max group shortfall</th>
+                    <th scope="col">Seat</th>
+                    <th scope="col">Gets the pot</th>
+                    <th scope="col">Deposit you lock</th>
+                    <th scope="col">Most the group could lose</th>
                   </tr>
                 </thead>
                 <tbody>
                   {slotBreakdown.slots.map((item) => (
                     <tr key={item.slot} className={item.slot === 1 ? 'row-creator' : ''}>
                       <td>
-                        <span className="slot-pill">Slot {item.slot}</span>
+                        <span className="slot-pill">Seat {item.slot}</span>
                         {item.slot === 1 && <span className="tag-creator">Creator</span>}
                       </td>
                       <td>
-                        {item.slot === 1 ? '1st payout' : item.slot === members ? 'Last payout' : `Turn ${item.slot}`}
+                        {item.slot === 1 ? 'Turn 1' : item.slot === members ? `Turn ${members} (last)` : `Turn ${item.slot}`}
                       </td>
                       <td className="deposit-cell">
                         <strong>{item.deposit} {token}</strong>
@@ -703,7 +711,7 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
                             {item.shortfall} {token}
                           </span>
                         ) : (
-                          <span className="text-muted">0 {token} (Zero risk)</span>
+                          <span className="text-muted">0 {token}</span>
                         )}
                       </td>
                     </tr>
@@ -715,7 +723,7 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
             <div className="spec-note-callout">
               <Info size={16} className="text-accent" />
               <div>
-                <strong>Why partial deposits?</strong> Early slots lock higher deposits because they owe more future periods after collecting the pot. The group's risk is capped transparently up front.
+                <strong>Why the deposits are different.</strong> People who get the pot early still owe more turns afterward, so they lock a bigger deposit. The most the group can lose is shown here before anyone joins.
               </div>
             </div>
           </section>

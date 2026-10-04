@@ -72,7 +72,7 @@ export const CircleRing: FC<CircleRingProps> = ({
       const diff = deadline - nowSec;
 
       if (diff <= 0) {
-        setCountdownStr('Period ended');
+        setCountdownStr('Turn ended');
         return;
       }
 
@@ -316,28 +316,28 @@ export const CircleRing: FC<CircleRingProps> = ({
           </>
         ) : isCircleOpen ? (
           <>
-            <span className="ring-center-sub">Pot per period: {centerPot}</span>
+            <span className="ring-center-sub">Pot each turn: {centerPot}</span>
             <div className="ring-center-title" style={{ fontSize: '1.25rem', lineHeight: '1.25', margin: '4px 0' }}>
-              {circle ? `${circle.currentMemberCount} of ${circle.membersTarget} seats filled` : 'Open'}
+              {circle ? `${circle.currentMemberCount} of ${circle.membersTarget} seats filled` : 'Open: waiting for members'}
             </div>
             <span className="ring-center-tag">Deposit: {circle?.depositPct}%</span>
           </>
         ) : isCircleActive ? (
           <>
             <span className="ring-center-sub">
-              Period {circle?.currentPeriod} of {circle?.orderLen || circle?.membersTarget}
+              Turn {circle?.currentPeriod} of {circle?.orderLen || circle?.membersTarget}
             </span>
             <div className="ring-center-title">{centerPot}</div>
             <div className="ring-center-countdown">
               <Clock size={12} style={{ display: 'inline', marginRight: '4px' }} />
-              {countdownStr || 'Round in progress'}
+              {countdownStr || 'Turn in progress'}
             </div>
           </>
         ) : (
           <>
-            <span className="ring-center-sub">Status: {circle?.status}</span>
+            <span className="ring-center-sub">Status: {circle?.status === 'Closing' ? 'Ending: refunds are open' : circle?.status === 'Closed' ? 'Closed' : circle?.status}</span>
             <div className="ring-center-title">{centerPot}</div>
-            <span className="ring-center-tag">Round finished</span>
+            <span className="ring-center-tag">All turns finished</span>
           </>
         )}
       </div>

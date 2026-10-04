@@ -51,7 +51,7 @@ function getTimingLabel(account: any): string {
       const hours = Math.ceil(diff / 3600);
       return `Opens in ${hours}h`;
     }
-    return 'Open';
+    return 'Open: waiting for members';
   }
 
   if (status === 'Active') {
@@ -64,18 +64,18 @@ function getTimingLabel(account: any): string {
       const minutes = Math.floor((diff % 3600) / 60);
       if (hours > 24) {
         const days = Math.ceil(hours / 24);
-        return `Next payout in ${days}d`;
+        return `Next pot in ${days}d`;
       } else if (hours > 0) {
-        return `Next payout in ${hours}h`;
+        return `Next pot in ${hours}h`;
       } else {
-        return `Next payout in ${Math.max(1, minutes)}m`;
+        return `Next pot in ${Math.max(1, minutes)}m`;
       }
     }
-    return 'Payout ready';
+    return 'Ready to pay out';
   }
 
   if (status === 'Closing') {
-    return 'Closing';
+    return 'Ending: refunds are open';
   }
 
   if (status === 'Closed') {
@@ -142,7 +142,7 @@ export const LandingPage: FC<LandingPageProps> = ({
       setMintDecimalsMap(decMap);
     } catch (err: any) {
       console.error('Failed to fetch circles from devnet:', err);
-      setFetchError('Unable to load circles from Solana devnet. Check your connection.');
+      setFetchError('Could not load circles from the Solana test network. Check your connection.');
     } finally {
       setLoading(false);
     }
@@ -222,7 +222,7 @@ export const LandingPage: FC<LandingPageProps> = ({
                   onClick={() => setMenuOpen(false)}
                 >
                   <ExternalLink size={14} />
-                  Program on explorer
+                  View program on explorer
                 </a>
                 <button
                   type="button"
@@ -233,7 +233,7 @@ export const LandingPage: FC<LandingPageProps> = ({
                   }}
                 >
                   <HelpCircle size={14} />
-                  How thrift works
+                  How savings circles work
                 </button>
               </div>
             )}
@@ -261,7 +261,7 @@ export const LandingPage: FC<LandingPageProps> = ({
           {/* Grey Paragraph */}
           <Reveal revealKey="landing-paragraph">
             <p className="landing-paragraph">
-              Solthrift is a savings circle on Solana. The program holds the money, pays out in turn, and removes late members. Everyone sees every payment.
+              Solthrift is a savings circle on Solana. A program holds the money, pays one person each turn, and removes anyone who misses a payment. Everyone can see every payment.
             </p>
           </Reveal>
 
@@ -286,7 +286,7 @@ export const LandingPage: FC<LandingPageProps> = ({
         {/* Left Panel Footer / Meta */}
         <div className="landing-left-footer">
           <span className="footer-faint-spec">
-            Non-custodial rotating credit and savings association (ROCSA/Ajo) on Solana devnet.
+            A savings circle on the Solana test network (devnet).
           </span>
         </div>
       </section>
@@ -299,20 +299,20 @@ export const LandingPage: FC<LandingPageProps> = ({
         <div className="landing-right-top-row">
           <div className="devnet-status-pill">
             <span className="pulse-green-dot" aria-hidden="true"></span>
-            <span>Live on Solana devnet</span>
+            <span>Running on the Solana test network</span>
           </div>
 
           <div className="landing-wallet-container">
-            <WalletMultiButton className="landing-wallet-btn" />
+            <WalletMultiButton className="landing-wallet-btn">Connect wallet</WalletMultiButton>
           </div>
         </div>
 
         {/* Section Header: "Live circles" small label & Page counter */}
         <div className="section-label-row">
-          <span className="section-label">LIVE CIRCLES</span>
+          <span className="section-label">SAVINGS CIRCLES</span>
           <span className="section-counter">
             {loading
-              ? 'Loading on-chain records...'
+              ? 'Reading records...'
               : `Page ${currentPage} of ${totalPages} • ${circles.length} indexed`}
           </span>
         </div>
@@ -321,7 +321,7 @@ export const LandingPage: FC<LandingPageProps> = ({
         {loading && (
           <div className="circles-loading-box">
             <Loader2 size={28} className="spinner-icon" />
-            <span>Reading verified circles from Solana devnet...</span>
+            <span>Reading circles from the Solana test network...</span>
           </div>
         )}
 
@@ -402,12 +402,12 @@ export const LandingPage: FC<LandingPageProps> = ({
                       </span>
                     </div>
 
-                    {/* Card Bottom: Large number with label "Pot per period" */}
+                    {/* Card Bottom: Large number with label "Pot each turn" */}
                     <div className="card-pot-section">
                       <div className="card-pot-amount">
                         {potFormatted} <small className="pot-unit">{tokenSymbol}</small>
                       </div>
-                      <div className="card-pot-label">Pot per period</div>
+                      <div className="card-pot-label">Pot each turn</div>
                     </div>
                   </article>
                 </Reveal>
@@ -469,7 +469,7 @@ export const LandingPage: FC<LandingPageProps> = ({
           >
             <div className="modal-header">
               <h2 id="support-dialog-title" className="card-title">
-                Solthrift protocol support
+                Solthrift support
               </h2>
               <button
                 type="button"
@@ -482,14 +482,14 @@ export const LandingPage: FC<LandingPageProps> = ({
             </div>
             <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', fontSize: '0.875rem', lineHeight: '1.6' }}>
               <p>
-                Solthrift operates autonomously on Solana devnet at program address{' '}
+                Solthrift runs on the Solana test network at program address{' '}
                 <code>{PROGRAM_ID.toBase58()}</code>.
               </p>
               <p>
-                <strong>How it works:</strong> Members deposit partial collateral upfront based on their assigned payout turn. Each round, members submit contributions into the vault. Once round dues arrive, the full pot is paid to that round's recipient.
+                <strong>How it works:</strong> Members lock a deposit upfront based on their seat. Each turn, members pay into the vault. Once everyone pays, the full pot goes to that turn's recipient.
               </p>
               <p>
-                <strong>Need test tokens?</strong> Devnet USDC is available via the Solana SPL token faucet. Verify your wallet has a small amount of Devnet SOL for network transaction fees.
+                <strong>Need test tokens?</strong> Test USDC is available from the token faucet. Make sure your wallet has a little test SOL to pay network fees.
               </p>
               <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem' }}>
                 <a
@@ -500,7 +500,7 @@ export const LandingPage: FC<LandingPageProps> = ({
                   style={{ fontSize: '0.8rem', padding: '0.4rem 0.8rem' }}
                 >
                   <ExternalLink size={13} />
-                  Devnet program
+                  Test network program
                 </a>
                 <a
                   href="#spec"
@@ -512,7 +512,7 @@ export const LandingPage: FC<LandingPageProps> = ({
                   style={{ fontSize: '0.8rem', padding: '0.4rem 0.8rem' }}
                 >
                   <BookOpen size={13} />
-                  Protocol spec
+                  Program rules
                 </a>
               </div>
             </div>

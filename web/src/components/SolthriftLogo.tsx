@@ -9,7 +9,7 @@ interface SolthriftLogoProps {
  * SolthriftLogo
  * The official Solthrift protocol emblem:
  * A central Solana network logo surrounded by four human icons in a savings circle,
- * symbolizing decentralized rotating credit and savings (ROCSA / Ajo) on Solana.
+ * symbolizing decentralized group savings on Solana.
  */
 export const SolthriftLogo: FC<SolthriftLogoProps> = ({ size = 26, className = '' }) => {
   return (

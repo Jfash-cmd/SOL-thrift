@@ -98,14 +98,14 @@ export const initialMockCircle: FakeCircleData = {
     {
       id: 'ev-5',
       event: 'paid_out',
-      description: 'Alice received 40 USDC payout for Period 1',
+      description: 'Alice received 40 USDC pot for Turn 1',
       timestamp: 'Yesterday',
       txHash: '9aMz44hG5J7pLmK12...',
     },
     {
       id: 'ev-6',
       event: 'circle_created',
-      description: 'Alice created Circle with 4 slots, 10 USDC contribution, 50% deposit',
+      description: 'Alice created Circle with 4 seats, 10 USDC payment, 50% deposit',
       timestamp: '2 days ago',
       txHash: '3pLm77hG5J7pLmK01...',
     },

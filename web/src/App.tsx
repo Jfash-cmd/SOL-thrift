@@ -119,8 +119,7 @@ export const AppContent: FC = () => {
               <span>Solthrift</span>
             </div>
             <p className="footer-text">
-              Decentralized, non-custodial rotating savings circle (ajo/thrift) on Solana Devnet.
-              Rules enforced by program CfY1M7cdgv1AvkLPuquqbCPNxMz73icdukWQP2sKdPq4. No person or company holds the money.
+              Savings circle on the Solana test network (devnet). Program rules hold the money, pay out each turn, and remove late members. No person or company holds the money.
             </p>
           </div>
 
@@ -151,7 +150,7 @@ export const AppContent: FC = () => {
           </div>
         </div>
         <div className="footer-bottom-bar">
-          <span>Devnet Only • Connected to Program CfY1M7cdgv1AvkLPuquqbCPNxMz73icdukWQP2sKdPq4 • No secret keys or private keys are ever stored or exposed.</span>
+          <span>Solana test network (devnet) only • Program CfY1M7cdgv1AvkLPuquqbCPNxMz73icdukWQP2sKdPq4 • No private keys are ever stored or exposed.</span>
         </div>
       </footer>
     </div>

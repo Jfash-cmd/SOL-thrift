@@ -1,6 +1,6 @@
 # Solthrift Web Application
 
-Frontend for Solthrift: on-chain rotating savings circle (ajo/thrift) on Solana.
+Frontend for Solthrift: on-chain rotating savings circle on Solana.
 Built with **Vite**, **React**, and **TypeScript**. Configured for **Solana Devnet**.
 
 ## Getting Started Locally

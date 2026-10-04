@@ -45,7 +45,7 @@ export const Navbar: FC<NavbarProps> = ({ activeTab, setActiveTab, onNavigate })
           </div>
           <div className="brand-text">
             <span className="brand-name">Solthrift</span>
-            <span className="badge-devnet">Devnet</span>
+            <span className="badge-devnet">Test network (devnet)</span>
           </div>
         </div>
 
@@ -106,7 +106,7 @@ export const Navbar: FC<NavbarProps> = ({ activeTab, setActiveTab, onNavigate })
             </div>
           ) : (
             <div className="wallet-adapter-wrapper">
-              <WalletMultiButton className="custom-wallet-btn" />
+              <WalletMultiButton className="custom-wallet-btn">Connect wallet</WalletMultiButton>
             </div>
           )}
         </div>
