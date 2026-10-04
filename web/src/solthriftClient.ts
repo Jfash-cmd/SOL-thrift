@@ -213,6 +213,29 @@ const PLAIN_ENGLISH_ERROR_MAP: Record<number, string> = {
 };
 
 /**
+ * Reads token balance for a given wallet and mint
+ */
+export async function getTokenBalance(
+  connection: Connection,
+  mint: PublicKey,
+  owner: PublicKey
+): Promise<number> {
+  try {
+    const ata = getAssociatedTokenAddressSync(
+      mint,
+      owner,
+      false,
+      TOKEN_PROGRAM_ID,
+      ASSOCIATED_TOKEN_PROGRAM_ID
+    );
+    const balance = await connection.getTokenAccountBalance(ata, 'confirmed');
+    return balance.value.uiAmount ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
  * Translates Solana / Anchor program errors using names and messages from the IDL into plain English
  */
 export function translateProgramError(err: any): {
@@ -301,7 +324,24 @@ export function translateProgramError(err: any): {
     }
   }
 
-  // 4. Insufficient SOL for fees or rent
+  // 4. SPL Token Program Errors (e.g. 0x1 = InsufficientFunds)
+  const isInsufficientTokenFunds =
+    hexMatch?.[1]?.toLowerCase() === '1' ||
+    errStr.toLowerCase().includes('custom program error: 0x1') ||
+    errStr.toLowerCase().includes('transfer: insufficient funds') ||
+    (Array.isArray(err.logs) &&
+      err.logs.some((l: string) => l.toLowerCase().includes('insufficient funds') || l.includes('0x1')));
+
+  if (isInsufficientTokenFunds) {
+    return {
+      code: 1,
+      name: 'InsufficientTokenFunds',
+      message: 'Insufficient token balance in your wallet. You need test tokens (e.g. devnet USDC) to cover your upfront deposit. You have SOL for gas fees, but circles require test tokens.',
+      details: 'SPL Token Error 0x1: Insufficient funds in token account',
+    };
+  }
+
+  // 5. Insufficient SOL for fees or rent
   if (
     errStr.includes('Attempt to debit an account but found no record of a prior credit') ||
     errStr.includes('insufficient funds for rent') ||
@@ -313,7 +353,8 @@ export function translateProgramError(err: any): {
     };
   }
 
-  // 5. Fallback clean message
+  // 6. Fallback clean message
   const cleanMsg = errStr.replace(/^Error:\s*/, '');
   return { message: cleanMsg, details: errStr !== cleanMsg ? errStr : undefined };
 }
+

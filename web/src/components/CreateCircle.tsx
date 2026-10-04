@@ -33,6 +33,7 @@ import {
   getVaultPda,
   getOrCreateAtaInstruction,
   getMintDecimals,
+  getTokenBalance,
   getExplorerUrl,
   translateProgramError,
 } from '../solthriftClient';
@@ -101,7 +102,10 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
     return hasPlaceholderConfigMint ? null : DEVNET_TOKEN_MINT;
   }, [customMintInput, hasPlaceholderConfigMint]);
 
-  // Read mint decimals at runtime from mint account
+  // Read mint decimals and user token balance at runtime
+  const [userTokenBalance, setUserTokenBalance] = useState<number | null>(null);
+  const [userSolBalance, setUserSolBalance] = useState<number | null>(null);
+
   useEffect(() => {
     if (activeMint) {
       getMintDecimals(connection, activeMint)
@@ -109,6 +113,24 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
         .catch(() => setMintDecimals(6));
     }
   }, [activeMint, connection]);
+
+  useEffect(() => {
+    if (connected && wallet?.publicKey) {
+      connection
+        .getBalance(wallet.publicKey)
+        .then((lamports) => setUserSolBalance(lamports / 1e9))
+        .catch(() => setUserSolBalance(null));
+
+      if (activeMint) {
+        getTokenBalance(connection, activeMint, wallet.publicKey)
+          .then((bal) => setUserTokenBalance(bal))
+          .catch(() => setUserTokenBalance(0));
+      }
+    } else {
+      setUserTokenBalance(null);
+      setUserSolBalance(null);
+    }
+  }, [connected, wallet?.publicKey, activeMint, connection]);
 
   // Validation according to Section 2 and Section 7
   const errors = useMemo(() => {
@@ -210,6 +232,10 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
     };
   }, [members, contribution, depositPct]);
 
+  const creatorRequiredDeposit = slotBreakdown.slots[0]?.deposit ?? 0;
+  const hasInsufficientTokens =
+    userTokenBalance !== null && userTokenBalance < creatorRequiredDeposit;
+
   // Submit on-chain createCircle instruction
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -218,6 +244,17 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
     if (!connected || !wallet || !wallet.publicKey) {
       setTxState('error');
       setTxError({ message: 'Connect your wallet to continue.' });
+      return;
+    }
+
+    if (hasInsufficientTokens) {
+      setTxState('error');
+      setTxError({
+        message: `You need at least ${creatorRequiredDeposit} ${token} in your wallet to cover the creator deposit for Slot 1. Your wallet currently has ${userTokenBalance} ${token}.`,
+        details: `Your wallet (${wallet.publicKey.toBase58()}) has ${
+          userSolBalance !== null ? userSolBalance.toFixed(2) : '10'
+        } SOL for network fees, but circle savings require test ${token}. Request test tokens from the faucet to proceed.`,
+      });
       return;
     }
 
@@ -510,6 +547,83 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
                 />
               </div>
             </div>
+
+            {/* Token Balance & Slot 1 Deposit Status */}
+            {connected && (
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  fontSize: '0.82rem',
+                  padding: '0.65rem 0.85rem',
+                  background: 'rgba(255, 255, 255, 0.03)',
+                  borderRadius: '12px',
+                  border: '1px solid rgba(255, 255, 255, 0.08)',
+                  margin: '0.5rem 0',
+                }}
+              >
+                <span style={{ color: 'var(--text-muted)' }}>
+                  Slot 1 deposit required: <strong style={{ color: '#fff' }}>{creatorRequiredDeposit} {token}</strong>
+                </span>
+                <span
+                  style={{
+                    color:
+                      userTokenBalance !== null && userTokenBalance >= creatorRequiredDeposit
+                        ? '#10b981'
+                        : '#f59e0b',
+                  }}
+                >
+                  Your balance:{' '}
+                  <strong>
+                    {userTokenBalance !== null ? `${userTokenBalance} ${token}` : 'Checking...'}
+                  </strong>
+                </span>
+              </div>
+            )}
+
+            {/* Faucet Guidance Banner when user has SOL but lacks tokens */}
+            {connected && hasInsufficientTokens && (
+              <div
+                className="alert-box warning-alert"
+                style={{
+                  flexDirection: 'column',
+                  alignItems: 'flex-start',
+                  gap: '0.5rem',
+                  margin: '0.5rem 0 1rem',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <AlertTriangle size={16} />
+                  <strong>Need test {token} for initial deposit</strong>
+                </div>
+                <p style={{ margin: 0, fontSize: '0.82rem', lineHeight: '1.45' }}>
+                  You have {userSolBalance !== null ? `${userSolBalance.toFixed(2)} SOL` : 'SOL'} to pay for Solana network transaction fees, but savings circles operate in test {token}. Creating this circle requires an upfront Slot 1 deposit of {creatorRequiredDeposit} {token} into the vault.
+                </p>
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
+                  <a
+                    href="https://faucet.circle.com/"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="btn-secondary"
+                    style={{ fontSize: '0.75rem', padding: '0.35rem 0.65rem' }}
+                  >
+                    <ExternalLink size={12} />
+                    Circle USDC Faucet
+                  </a>
+                  <a
+                    href="https://spl-token-faucet.com/?token-name=USDC-Dev"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="btn-secondary"
+                    style={{ fontSize: '0.75rem', padding: '0.35rem 0.65rem' }}
+                  >
+                    <ExternalLink size={12} />
+                    SPL Token Faucet
+                  </a>
+                </div>
+              </div>
+            )}
 
             {/* Bottom action area pushed to bottom with margin-top: auto on desktop */}
             <div className="create-form-bottom">
