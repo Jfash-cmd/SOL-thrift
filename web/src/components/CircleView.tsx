@@ -24,6 +24,7 @@ import {
   Info,
   History,
   ArrowRight,
+  LogOut,
 } from 'lucide-react';
 
 import type { RealCircleData, RealMemberData } from '../types';
@@ -37,6 +38,7 @@ import {
   getSolthriftProgram,
   getMemberPda,
   getOrCreateAtaInstruction,
+  getMintDecimals,
   getExplorerUrl,
   translateProgramError,
 } from '../solthriftClient';
@@ -63,6 +65,7 @@ export const CircleView: FC<CircleViewProps> = ({
   // Search input & loaded circle state
   const [inputAddress, setInputAddress] = useState<string>(circleAddress || '');
   const [loading, setLoading] = useState<boolean>(false);
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [circle, setCircle] = useState<RealCircleData | null>(null);
   const [tokenDecimals, setTokenDecimals] = useState<number>(6);
@@ -71,17 +74,27 @@ export const CircleView: FC<CircleViewProps> = ({
   const [copiedCircle, setCopiedCircle] = useState<boolean>(false);
   const [copiedMemberIdx, setCopiedMemberIdx] = useState<number | null>(null);
 
-  // Transaction execution state for joinCircle
+  // Transaction execution state
   const [txPending, setTxPending] = useState<boolean>(false);
   const [txPendingMsg, setTxPendingMsg] = useState<string | null>(null);
   const [txSuccess, setTxSuccess] = useState<{ signature: string; message: string } | null>(null);
   const [txError, setTxError] = useState<string | null>(null);
 
+  // Live timer ticking every second for real-time countdowns without reloading
+  const [nowSec, setNowSec] = useState<number>(Math.floor(Date.now() / 1000));
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNowSec(Math.floor(Date.now() / 1000));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
   /**
    * Fetch real on-chain Circle and Member data from Devnet
+   * @param silent If true, updates state silently without triggering full-screen loading skeleton
    */
   const loadCircleData = useCallback(
-    async (addressToLoad: string) => {
+    async (addressToLoad: string, silent: boolean = false) => {
       const trimmed = addressToLoad.trim();
       if (!trimmed) {
         setCircle(null);
@@ -98,22 +111,23 @@ export const CircleView: FC<CircleViewProps> = ({
         return;
       }
 
-      setLoading(true);
-      setFetchError(null);
-      setTxSuccess(null);
-      setTxError(null);
+      if (!silent) {
+        setLoading(true);
+        setFetchError(null);
+        setTxSuccess(null);
+        setTxError(null);
+      } else {
+        setIsRefreshing(true);
+      }
 
       try {
         const program = getSolthriftProgram(connection, wallet as any);
         const circleAccount = await program.account.circle.fetch(pubkey);
 
-        // Fetch mint decimals
+        // Read mint decimals at runtime from mint account
         let decimals = 6;
         try {
-          const mintInfo = await connection.getParsedAccountInfo(circleAccount.tokenMint as PublicKey);
-          if (mintInfo.value && 'parsed' in mintInfo.value.data) {
-            decimals = mintInfo.value.data.parsed.info.decimals;
-          }
+          decimals = await getMintDecimals(connection, circleAccount.tokenMint as PublicKey);
         } catch {
           decimals = 6;
         }
@@ -189,16 +203,22 @@ export const CircleView: FC<CircleViewProps> = ({
         setCircle(circleData);
       } catch (err: any) {
         console.error('Failed to load on-chain circle:', err);
-        const errStr = String(err?.message || err);
-        if (errStr.includes('Account does not exist')) {
-          setFetchError(`Circle account not found on Solana devnet at address ${trimmed}. Verify the address or create a new circle.`);
-        } else {
-          const translated = translateProgramError(err);
-          setFetchError(`Failed to load circle: ${translated.message}. Check your network connection.`);
+        if (!silent) {
+          const errStr = String(err?.message || err);
+          if (errStr.includes('Account does not exist')) {
+            setFetchError(`Circle account not found on Solana devnet at address ${trimmed}. Verify the address or create a new circle.`);
+          } else {
+            const translated = translateProgramError(err);
+            setFetchError(`Failed to load circle: ${translated.message}. Check your network connection.`);
+          }
+          setCircle(null);
         }
-        setCircle(null);
       } finally {
-        setLoading(false);
+        if (!silent) {
+          setLoading(false);
+        } else {
+          setIsRefreshing(false);
+        }
       }
     },
     [connection, wallet]
@@ -211,6 +231,15 @@ export const CircleView: FC<CircleViewProps> = ({
       loadCircleData(circleAddress);
     }
   }, [circleAddress, loadCircleData]);
+
+  // Section 9 / Requirement 6: Auto-refresh every 10 seconds silently
+  useEffect(() => {
+    if (!circle?.address) return;
+    const interval = setInterval(() => {
+      loadCircleData(circle.address.toBase58(), true);
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [circle?.address, loadCircleData]);
 
   // Handle Search Submission
   const handleSearchSubmit = (e: React.FormEvent) => {
@@ -270,16 +299,147 @@ export const CircleView: FC<CircleViewProps> = ({
 
   const owedPeriods = circle ? circle.membersTarget - nextSlot : 0;
 
-  // Determine recipient member
+  // Timing & Live countdowns from periodStartTime + periodDuration + graceDuration
+  const periodStartTime = circle ? Number(circle.periodStartTime.toString()) : 0;
+  const periodDuration = circle ? Number(circle.periodDuration.toString()) : 0;
+  const graceDuration = circle ? Number(circle.graceDuration.toString()) : 0;
+  const periodDeadline = periodStartTime + periodDuration;
+  const graceDeadline = periodDeadline + graceDuration;
+
+  const isGraceExpired = isCircleActive && nowSec > graceDeadline;
+  const isPeriodExpired = isCircleActive && nowSec > periodDeadline;
+
+  const formatCountdown = (targetSec: number) => {
+    const diff = targetSec - nowSec;
+    if (diff <= 0) return '0s (expired)';
+    const days = Math.floor(diff / 86400);
+    const hours = Math.floor((diff % 86400) / 3600);
+    const minutes = Math.floor((diff % 3600) / 60);
+    const seconds = diff % 60;
+    if (days > 0) return `${days}d ${hours}h ${minutes}m ${seconds}s`;
+    if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
+    if (minutes > 0) return `${minutes}m ${seconds}s`;
+    return `${seconds}s`;
+  };
+
+  // Determine recipient member for Payout
   const currentPeriodRecipientSlot =
     circle && isCircleActive && circle.currentPeriod >= 1 && circle.currentPeriod <= circle.orderLen
       ? circle.payoutOrder[circle.currentPeriod - 1]
+      : null;
+
+  const recipientWallet =
+    currentPeriodRecipientSlot && circle?.members && circle.members[currentPeriodRecipientSlot - 1]
+      ? circle.members[currentPeriodRecipientSlot - 1]
       : null;
 
   const nextRecipientMember =
     currentPeriodRecipientSlot && circle
       ? circle.loadedMembers.find((m) => m.slot === currentPeriodRecipientSlot && m.status === 'Active')
       : null;
+
+  const payoutRecipientDisplay = nextRecipientMember
+    ? `Slot ${nextRecipientMember.slot} (${nextRecipientMember.wallet.toBase58().slice(0, 4)}...${nextRecipientMember.wallet.toBase58().slice(-4)})`
+    : currentPeriodRecipientSlot
+    ? `Slot ${currentPeriodRecipientSlot}`
+    : 'next recipient';
+
+  const canPayout = Boolean(
+    isCircleActive &&
+    circle &&
+    circle.contributionsThisPeriod === circle.expectedContributors &&
+    circle.currentPeriod >= 1 &&
+    circle.currentPeriod <= circle.orderLen &&
+    nextRecipientMember &&
+    !nextRecipientMember.hasBeenPaid &&
+    connected
+  );
+
+  let payoutReason = '';
+  if (!connected) {
+    payoutReason = 'Connect wallet to trigger payout';
+  } else if (!isCircleActive) {
+    payoutReason = `Wrong status: circle is ${circle?.status} (payout requires Active status)`;
+  } else if (circle && circle.contributionsThisPeriod < circle.expectedContributors) {
+    const remainingText = nowSec <= graceDeadline ? ` (${formatCountdown(graceDeadline)} left until grace deadline)` : ' (grace deadline passed)';
+    payoutReason = `Not enough contributions: ${circle.contributionsThisPeriod} of ${circle.expectedContributors} members have contributed this period${remainingText}`;
+  } else if (nextRecipientMember?.hasBeenPaid) {
+    payoutReason = `Recipient in slot ${currentPeriodRecipientSlot} has already been paid for this round`;
+  } else if (canPayout) {
+    payoutReason = `All ${circle?.expectedContributors} contributions received. Ready to pay pot to slot ${currentPeriodRecipientSlot}.`;
+  }
+
+  // Late members evaluation for Remove Defaulter
+  const lateMembers = isCircleActive && circle
+    ? circle.loadedMembers.filter(
+        (m) => m.status === 'Active' && m.lastContributedPeriod !== circle.currentPeriod
+      )
+    : [];
+  const targetLateMember = lateMembers.length > 0 ? lateMembers[0] : null;
+
+  const removeDefaulterButtonLabel = targetLateMember
+    ? `Remove late member (Slot ${targetLateMember.slot})`
+    : 'Remove late member';
+
+  const canRemoveDefaulter = Boolean(
+    isCircleActive &&
+    targetLateMember !== null &&
+    isGraceExpired &&
+    connected
+  );
+
+  let removeDefaulterReason = '';
+  if (!connected) {
+    removeDefaulterReason = 'Connect wallet to trigger defaulter removal';
+  } else if (!isCircleActive) {
+    removeDefaulterReason = `Wrong status: circle is ${circle?.status} (defaulter removal requires Active status)`;
+  } else if (lateMembers.length === 0 || (circle && circle.contributionsThisPeriod === circle.expectedContributors)) {
+    removeDefaulterReason = `No late members: all ${circle?.expectedContributors || 0} active members have contributed for Period ${circle?.currentPeriod}`;
+  } else if (!isGraceExpired) {
+    removeDefaulterReason = `Deadline not reached: contribution & grace period active (${formatCountdown(graceDeadline)} remaining)`;
+  } else if (canRemoveDefaulter) {
+    removeDefaulterReason = `Grace period expired. Member Slot ${targetLateMember?.slot} missed contribution; callable by anyone to settle.`;
+  }
+
+  // Start states evaluation
+  const fillWindowEndTime = circle
+    ? periodStartTime + Number(circle.fillWindowDuration.toString())
+    : 0;
+
+  let startButtonLabel = 'Start next round';
+  let startReason = '';
+
+  if (isCircleOpen) {
+    startButtonLabel = 'Start circle';
+    startReason = `Wrong status: circle is Open waiting for members (${circle?.currentMemberCount || 0} of ${circle?.membersTarget || 0} joined). Starts automatically when all seats fill.`;
+  } else if (isCircleActive) {
+    startButtonLabel = 'Start next round';
+    startReason = `Wrong status: current round is Active (Period ${circle?.currentPeriod} of ${circle?.orderLen || circle?.membersTarget}). Next round starts after current round completes.`;
+  } else if (circle?.status === 'Filling') {
+    startButtonLabel = 'Start next round';
+    if (nowSec <= fillWindowEndTime) {
+      startReason = `Deadline not reached: 2-day filling window active (${formatCountdown(fillWindowEndTime)} remaining)`;
+    } else {
+      startReason = 'Filling window ended. Seats locked; ready for next round.';
+    }
+  } else {
+    startButtonLabel = 'Start next round';
+    startReason = `Wrong status: circle is ${circle?.status?.toLowerCase() || 'inactive'} (cannot start round)`;
+  }
+
+  // Member-specific flags
+  const canFlagLeaving = Boolean(
+    userMember &&
+    userMember.status === 'Active' &&
+    !userMember.leaving &&
+    (circle?.status === 'Active' || circle?.status === 'Filling')
+  );
+
+  const canExitMember = Boolean(
+    userMember &&
+    userMember.status === 'Active' &&
+    ((circle?.status === 'Filling' && userMember.leaving) || circle?.status === 'Closing')
+  );
 
   /**
    * Section 5, Instruction 2: Join Circle
@@ -352,9 +512,337 @@ export const CircleView: FC<CircleViewProps> = ({
       });
 
       // Refetch latest circle and member accounts from chain
-      await loadCircleData(circle.address.toBase58());
+      await loadCircleData(circle.address.toBase58(), true);
     } catch (err: any) {
       console.error('joinCircle failed:', err);
+      const translated = translateProgramError(err);
+      setTxError(`${translated.name ? translated.name + ': ' : ''}${translated.message}`);
+    } finally {
+      setTxPending(false);
+      setTxPendingMsg(null);
+    }
+  };
+
+  /**
+   * Section 5, Instruction 3: Contribute
+   * Real on-chain contribution payment by the connected member
+   */
+  const handleContribute = async () => {
+    if (!connected || !publicKey) {
+      setTxError('Wallet not connected. Connect your wallet to contribute.');
+      return;
+    }
+    if (!circle || !userMember) {
+      setTxError('You are not registered as an active member of this circle.');
+      return;
+    }
+
+    setTxPending(true);
+    setTxPendingMsg(`Submitting contribution of ${formattedContribution} ${tokenSymbol}...`);
+    setTxError(null);
+    setTxSuccess(null);
+
+    try {
+      const preInstructions: TransactionInstruction[] = [];
+      const { ata: memberAta, instruction: createAtaIx } = await getOrCreateAtaInstruction(
+        connection,
+        circle.tokenMint,
+        publicKey,
+        publicKey
+      );
+      if (createAtaIx) {
+        preInstructions.push(createAtaIx);
+      }
+
+      const program = getSolthriftProgram(connection, wallet as any);
+      const method = program.methods
+        .contribute()
+        .accounts({
+          circle: circle.address,
+          member: userMember.memberPda,
+          memberWallet: publicKey,
+          tokenMint: circle.tokenMint,
+          memberTokenAccount: memberAta,
+          vault: circle.vault,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        });
+
+      if (preInstructions.length > 0) {
+        method.preInstructions(preInstructions);
+      }
+
+      const sig = await method.rpc();
+      setTxSuccess({
+        signature: sig,
+        message: `Contribution of ${formattedContribution} ${tokenSymbol} for Period ${circle.currentPeriod} confirmed!`,
+      });
+
+      await loadCircleData(circle.address.toBase58(), true);
+    } catch (err: any) {
+      console.error('contribute failed:', err);
+      const translated = translateProgramError(err);
+      setTxError(`${translated.name ? translated.name + ': ' : ''}${translated.message}`);
+    } finally {
+      setTxPending(false);
+      setTxPendingMsg(null);
+    }
+  };
+
+  /**
+   * Section 5, Instruction 4: Payout
+   * Callable by anyone; recipient = payout_order[current_period - 1]
+   * Passes that member's account and associated token account, creating it first if missing
+   */
+  const handlePayout = async () => {
+    if (!connected || !publicKey) {
+      setTxError('Wallet not connected. Connect your wallet to trigger payout.');
+      return;
+    }
+    if (!circle) return;
+
+    if (!currentPeriodRecipientSlot) {
+      setTxError('No recipient slot determined for current period.');
+      return;
+    }
+
+    const recWallet = recipientWallet || (nextRecipientMember ? nextRecipientMember.wallet : null);
+    if (!recWallet) {
+      setTxError(`Could not find recipient wallet address for slot ${currentPeriodRecipientSlot}.`);
+      return;
+    }
+
+    const [recMemberPda] = getMemberPda(circle.address, recWallet);
+
+    setTxPending(true);
+    setTxPendingMsg(`Processing pot payout to Slot ${currentPeriodRecipientSlot}...`);
+    setTxError(null);
+    setTxSuccess(null);
+
+    try {
+      const preInstructions: TransactionInstruction[] = [];
+      // Requirement 2: pass that member's ATA, creating it first if missing
+      const { ata: recipientAta, instruction: createAtaIx } = await getOrCreateAtaInstruction(
+        connection,
+        circle.tokenMint,
+        recWallet,
+        publicKey // connected caller pays rent if ATA needs creation
+      );
+      if (createAtaIx) {
+        preInstructions.push(createAtaIx);
+      }
+
+      const program = getSolthriftProgram(connection, wallet as any);
+      const method = program.methods
+        .payout()
+        .accounts({
+          circle: circle.address,
+          recipientMember: recMemberPda,
+          tokenMint: circle.tokenMint,
+          recipientTokenAccount: recipientAta,
+          vault: circle.vault,
+          caller: publicKey,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        });
+
+      if (preInstructions.length > 0) {
+        method.preInstructions(preInstructions);
+      }
+
+      const sig = await method.rpc();
+      const recShort = `${recWallet.toBase58().slice(0, 4)}...${recWallet.toBase58().slice(-4)}`;
+      setTxSuccess({
+        signature: sig,
+        message: `Pot payout for Period ${circle.currentPeriod} successfully sent to Slot ${currentPeriodRecipientSlot} (${recShort})!`,
+      });
+
+      await loadCircleData(circle.address.toBase58(), true);
+    } catch (err: any) {
+      console.error('payout failed:', err);
+      const translated = translateProgramError(err);
+      setTxError(`${translated.name ? translated.name + ': ' : ''}${translated.message}`);
+    } finally {
+      setTxPending(false);
+      setTxPendingMsg(null);
+    }
+  };
+
+  /**
+   * Section 5, Instruction 5: Remove Defaulter
+   * Callable by anyone after deadline + grace against an active member who missed contribution
+   */
+  const handleRemoveDefaulter = async (memberToRemove?: RealMemberData) => {
+    if (!connected || !publicKey) {
+      setTxError('Wallet not connected. Connect your wallet to remove late member.');
+      return;
+    }
+    if (!circle) return;
+
+    const target = memberToRemove || targetLateMember;
+    if (!target) {
+      setTxError('No late member eligible for removal.');
+      return;
+    }
+
+    setTxPending(true);
+    setTxPendingMsg(`Removing late member Slot ${target.slot}...`);
+    setTxError(null);
+    setTxSuccess(null);
+
+    try {
+      const preInstructions: TransactionInstruction[] = [];
+      const { ata: memberAta, instruction: createAtaIx } = await getOrCreateAtaInstruction(
+        connection,
+        circle.tokenMint,
+        target.wallet,
+        publicKey
+      );
+      if (createAtaIx) {
+        preInstructions.push(createAtaIx);
+      }
+
+      const program = getSolthriftProgram(connection, wallet as any);
+      const method = program.methods
+        .removeDefaulter()
+        .accounts({
+          circle: circle.address,
+          member: target.memberPda,
+          tokenMint: circle.tokenMint,
+          memberTokenAccount: memberAta,
+          vault: circle.vault,
+          caller: publicKey,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        });
+
+      if (preInstructions.length > 0) {
+        method.preInstructions(preInstructions);
+      }
+
+      const sig = await method.rpc();
+      setTxSuccess({
+        signature: sig,
+        message: `Late member Slot ${target.slot} removed and collateral deposit settled on-chain per Section 6.`,
+      });
+
+      await loadCircleData(circle.address.toBase58(), true);
+    } catch (err: any) {
+      console.error('removeDefaulter failed:', err);
+      const translated = translateProgramError(err);
+      setTxError(`${translated.name ? translated.name + ': ' : ''}${translated.message}`);
+    } finally {
+      setTxPending(false);
+      setTxPendingMsg(null);
+    }
+  };
+
+  /**
+   * Section 5, Instruction 6: Flag Leaving
+   * Signed by the member while Active or Filling
+   */
+  const handleFlagLeaving = async (targetMember?: RealMemberData) => {
+    if (!connected || !publicKey) {
+      setTxError('Wallet not connected. Connect your wallet to flag leaving.');
+      return;
+    }
+    if (!circle) return;
+
+    const memberToFlag = targetMember || userMember;
+    if (!memberToFlag) {
+      setTxError('Member account not found for connected wallet.');
+      return;
+    }
+
+    setTxPending(true);
+    setTxPendingMsg(`Flagging leaving for Slot ${memberToFlag.slot}...`);
+    setTxError(null);
+    setTxSuccess(null);
+
+    try {
+      const program = getSolthriftProgram(connection, wallet as any);
+      const sig = await program.methods
+        .flagLeaving()
+        .accounts({
+          circle: circle.address,
+          member: memberToFlag.memberPda,
+          memberWallet: publicKey,
+        })
+        .rpc();
+
+      setTxSuccess({
+        signature: sig,
+        message: `Slot ${memberToFlag.slot} flagged as leaving. Your deposit will be refunded when exiting during Filling or Closing.`,
+      });
+
+      await loadCircleData(circle.address.toBase58(), true);
+    } catch (err: any) {
+      console.error('flagLeaving failed:', err);
+      const translated = translateProgramError(err);
+      setTxError(`${translated.name ? translated.name + ': ' : ''}${translated.message}`);
+    } finally {
+      setTxPending(false);
+      setTxPendingMsg(null);
+    }
+  };
+
+  /**
+   * Section 5, Instruction 7: Exit Member
+   * Callable by anyone during Filling or Closing for members who flagged leaving or when Closing
+   */
+  const handleExitMember = async (targetMember?: RealMemberData) => {
+    if (!connected || !publicKey) {
+      setTxError('Wallet not connected. Connect your wallet to exit member.');
+      return;
+    }
+    if (!circle) return;
+
+    const memberToExit = targetMember || userMember;
+    if (!memberToExit) {
+      setTxError('Member account not found to exit.');
+      return;
+    }
+
+    setTxPending(true);
+    setTxPendingMsg(`Exiting member Slot ${memberToExit.slot} and retrieving deposit...`);
+    setTxError(null);
+    setTxSuccess(null);
+
+    try {
+      const preInstructions: TransactionInstruction[] = [];
+      const { ata: memberAta, instruction: createAtaIx } = await getOrCreateAtaInstruction(
+        connection,
+        circle.tokenMint,
+        memberToExit.wallet,
+        publicKey
+      );
+      if (createAtaIx) {
+        preInstructions.push(createAtaIx);
+      }
+
+      const program = getSolthriftProgram(connection, wallet as any);
+      const method = program.methods
+        .exitMember()
+        .accounts({
+          circle: circle.address,
+          member: memberToExit.memberPda,
+          tokenMint: circle.tokenMint,
+          memberTokenAccount: memberAta,
+          vault: circle.vault,
+          caller: publicKey,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        });
+
+      if (preInstructions.length > 0) {
+        method.preInstructions(preInstructions);
+      }
+
+      const sig = await method.rpc();
+      setTxSuccess({
+        signature: sig,
+        message: `Member Slot ${memberToExit.slot} exited successfully. Locked deposit refunded to wallet.`,
+      });
+
+      await loadCircleData(circle.address.toBase58(), true);
+    } catch (err: any) {
+      console.error('exitMember failed:', err);
       const translated = translateProgramError(err);
       setTxError(`${translated.name ? translated.name + ': ' : ''}${translated.message}`);
     } finally {
@@ -721,68 +1209,233 @@ export const CircleView: FC<CircleViewProps> = ({
               </div>
             )}
 
-            {/* ACTION PANEL 2: TRIGGER BUTTONS (Next Step buttons) */}
+            {/* ACTION PANEL 1.5: MEMBER ACTIONS (when connected user is a circle member) */}
+            {userMember && (
+              <div className="card member-action-card" style={{ border: '1px solid rgba(255, 255, 255, 0.15)' }}>
+                <Reveal revealKey={`circle-member-action-${circle.address.toBase58()}`}>
+                  <div className="card-header-row" style={{ marginBottom: '0.75rem' }}>
+                    <div>
+                      <h2 className="card-title" style={{ fontSize: '1.15rem', margin: 0 }}>
+                        Your Member Operations (Slot {userMember.slot})
+                      </h2>
+                      <p className="card-desc" style={{ margin: '0.2rem 0 0 0' }}>
+                        Actions for your enrolled wallet seat.
+                      </p>
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                      {userMember.slot === 1 && <span className="tag-creator">Creator</span>}
+                      {userMember.leaving && <span className="badge-status removed">Leaving Flagged</span>}
+                    </div>
+                  </div>
+                </Reveal>
+
+                {/* Contribute Section for Connected Member */}
+                {isCircleActive && (
+                  <div style={{ marginBottom: '1rem' }}>
+                    {userMember.lastContributedPeriod === circle.currentPeriod ? (
+                      <div className="alert-box success-alert" style={{ margin: 0 }}>
+                        <CheckCircle size={16} />
+                        <span>
+                          You have contributed for Period {circle.currentPeriod} (<strong>{formattedContribution} {tokenSymbol}</strong> locked in vault).
+                        </span>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        <button
+                          type="button"
+                          id="member-contribute-btn"
+                          className="btn-primary"
+                          style={{ width: '100%' }}
+                          disabled={nowSec > graceDeadline || txPending}
+                          onClick={handleContribute}
+                        >
+                          {txPending && txPendingMsg?.includes('contribution') ? (
+                            <>
+                              <Loader2 size={16} className="spinner-icon" />
+                              Submitting contribution...
+                            </>
+                          ) : (
+                            <>
+                              <Coins size={16} />
+                              Contribute {formattedContribution} {tokenSymbol} (Period {circle.currentPeriod})
+                            </>
+                          )}
+                        </button>
+                        <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                          {nowSec > graceDeadline
+                            ? 'Contribution deadline + grace has expired.'
+                            : `Contribution window closes in ${formatCountdown(graceDeadline)}.`}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* flagLeaving and exitMember buttons */}
+                <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                  {canFlagLeaving && (
+                    <button
+                      type="button"
+                      id="member-flag-leaving-btn"
+                      className="btn-secondary"
+                      disabled={txPending}
+                      onClick={() => handleFlagLeaving()}
+                      title="Flag leaving so your deposit is returned at round reset"
+                    >
+                      <LogOut size={14} />
+                      Flag leaving
+                    </button>
+                  )}
+
+                  {canExitMember && (
+                    <button
+                      type="button"
+                      id="member-exit-btn"
+                      className="btn-primary"
+                      disabled={txPending}
+                      onClick={() => handleExitMember()}
+                      title="Reclaim your deposit and exit this circle"
+                    >
+                      <LogOut size={14} />
+                      Exit circle & reclaim deposit
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ACTION PANEL 2: PROTOCOL TRIGGER ACTIONS (Section 9) */}
             <div className="card triggers-card" aria-labelledby="triggers-title">
               <Reveal revealKey={`circle-triggers-heading-${circle.address.toBase58()}`}>
-                <div className="triggers-header">
-                  <h2 id="triggers-title" className="card-title">
-                    Protocol actions
-                  </h2>
-                  <span className="badge-pill">Next step</span>
+                <div className="triggers-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <h2 id="triggers-title" className="card-title" style={{ margin: 0 }}>
+                      Protocol trigger actions
+                    </h2>
+                    <p className="card-desc" style={{ margin: '0.2rem 0 0 0' }}>
+                      Permissionless triggers callable by anyone per Section 9.
+                    </p>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <button
+                      type="button"
+                      id="manual-refresh-btn"
+                      className="btn-secondary"
+                      onClick={() => loadCircleData(circle.address.toBase58(), false)}
+                      disabled={isRefreshing || loading}
+                      style={{ padding: '0.35rem 0.75rem', fontSize: '0.75rem', gap: '0.35rem' }}
+                      title="Refresh circle state from Solana devnet"
+                    >
+                      <RefreshCw size={12} className={isRefreshing ? 'spinner-icon' : ''} />
+                      <span>Refresh</span>
+                      <span style={{ fontSize: '0.68rem', opacity: 0.65 }}>• 10s auto</span>
+                    </button>
+                  </div>
                 </div>
               </Reveal>
-              <p className="card-desc">
-                Contribute, payout, and defaulter triggers will execute on-chain transactions in the next step.
-              </p>
 
-              <div className="triggers-action-list">
-                {/* Button 1: Contribute */}
+              {/* Live Period & Grace Countdown Banner */}
+              {isCircleActive && (
+                <div
+                  className="period-countdown-banner"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    background: 'rgba(255, 255, 255, 0.03)',
+                    border: '1px solid var(--glass-border-subtle)',
+                    borderRadius: '12px',
+                    padding: '0.75rem 1rem',
+                    marginTop: '0.75rem',
+                    fontSize: '0.85rem',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <Clock size={16} className="text-amber" />
+                    <span>
+                      Period {circle.currentPeriod} Deadline + Grace:{' '}
+                      <strong style={{ color: '#ffffff', fontFamily: 'monospace' }}>
+                        {formatCountdown(graceDeadline)}
+                      </strong>
+                    </span>
+                  </div>
+                  <span className={`badge-status ${isGraceExpired ? 'removed' : 'pending'}`} style={{ margin: 0 }}>
+                    {isGraceExpired ? 'Grace Expired' : isPeriodExpired ? 'In Grace Window' : 'Active Period'}
+                  </span>
+                </div>
+              )}
+
+              <div className="triggers-action-list" style={{ marginTop: '1rem' }}>
+                {/* Trigger 1: Pay out to <member> */}
                 <div className="trigger-item">
                   <button
                     type="button"
-                    className="trigger-action-btn btn-disabled"
-                    disabled
+                    id="trigger-payout-btn"
+                    className={`trigger-action-btn ${canPayout ? 'btn-primary' : 'btn-disabled'}`}
+                    disabled={!canPayout || txPending}
+                    onClick={handlePayout}
                   >
-                    <Coins size={16} />
-                    Contribute {formattedContribution} {tokenSymbol}
+                    {txPending && txPendingMsg?.includes('pot payout') ? (
+                      <>
+                        <Loader2 size={16} className="spinner-icon" />
+                        Processing payout...
+                      </>
+                    ) : (
+                      <>
+                        <Coins size={16} />
+                        Pay out to {payoutRecipientDisplay}
+                      </>
+                    )}
                   </button>
                   <div className="trigger-status-reason">
-                    <span className="reason-text disabled">
-                      <Clock size={13} /> Active members submit periodic contribution
+                    <span className={`reason-text ${canPayout ? 'text-green' : 'disabled'}`}>
+                      <Clock size={13} /> {payoutReason}
                     </span>
                   </div>
                 </div>
 
-                {/* Button 2: Payout */}
+                {/* Trigger 2: Remove late member */}
                 <div className="trigger-item">
                   <button
                     type="button"
-                    className="trigger-action-btn btn-disabled"
-                    disabled
+                    id="trigger-remove-defaulter-btn"
+                    className={`trigger-action-btn ${canRemoveDefaulter ? 'btn-primary' : 'btn-disabled'}`}
+                    disabled={!canRemoveDefaulter || txPending}
+                    onClick={() => handleRemoveDefaulter()}
                   >
-                    <Coins size={16} />
-                    Pay out to {nextRecipientMember ? `slot ${nextRecipientMember.slot}` : 'next recipient'}
+                    {txPending && txPendingMsg?.includes('Removing late') ? (
+                      <>
+                        <Loader2 size={16} className="spinner-icon" />
+                        Removing late member...
+                      </>
+                    ) : (
+                      <>
+                        <ShieldAlert size={16} />
+                        {removeDefaulterButtonLabel}
+                      </>
+                    )}
                   </button>
                   <div className="trigger-status-reason">
-                    <span className="reason-text disabled">
-                      <Clock size={13} /> Callable once period contributions reach target or deadline passes
+                    <span className={`reason-text ${canRemoveDefaulter ? 'text-green' : 'disabled'}`}>
+                      <Clock size={13} /> {removeDefaulterReason}
                     </span>
                   </div>
                 </div>
 
-                {/* Button 3: Remove Defaulter */}
+                {/* Trigger 3: Start states */}
                 <div className="trigger-item">
                   <button
                     type="button"
+                    id="trigger-start-btn"
                     className="trigger-action-btn btn-disabled"
                     disabled
                   >
-                    <ShieldAlert size={16} />
-                    Remove late member
+                    <Award size={16} />
+                    {startButtonLabel}
                   </button>
                   <div className="trigger-status-reason">
                     <span className="reason-text disabled">
-                      <Clock size={13} /> Callable after period duration and grace expire against late members
+                      <Clock size={13} /> {startReason}
                     </span>
                   </div>
                 </div>
@@ -842,6 +1495,11 @@ export const CircleView: FC<CircleViewProps> = ({
                               {isRecipient && <span className="tag-recipient">Next pot</span>}
                               {member.hasBeenPaid && !isRecipient && (
                                 <span className="tag-paidout">Paid out</span>
+                              )}
+                              {member.leaving && (
+                                <span className="badge-status removed" style={{ fontSize: '0.7rem', padding: '0.15rem 0.45rem' }}>
+                                  Leaving
+                                </span>
                               )}
                             </div>
                             <div className="member-wallet-row">
@@ -929,6 +1587,83 @@ export const CircleView: FC<CircleViewProps> = ({
                             <div className="removal-explanation">
                               <AlertTriangle size={13} className="text-red" />
                               <span>Missed contribution deadline. Forfeited line; deposit drawn per Section 7.</span>
+                            </div>
+                          )}
+
+                          {/* Member Contextual Actions */}
+                          {member.status === 'Active' && (
+                            <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid var(--glass-border-subtle)', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                              {/* Connected wallet buttons */}
+                              {connected && publicKey && member.wallet.equals(publicKey) && (
+                                <>
+                                  {isCircleActive && !hasPaidThisPeriod && (
+                                    <button
+                                      type="button"
+                                      id={`member-card-contribute-${member.slot}`}
+                                      className="btn-primary"
+                                      style={{ padding: '0.35rem 0.75rem', fontSize: '0.75rem', gap: '0.3rem' }}
+                                      disabled={nowSec > graceDeadline || txPending}
+                                      onClick={handleContribute}
+                                      title={`Contribute ${formattedContribution} ${tokenSymbol}`}
+                                    >
+                                      <Coins size={12} /> Contribute
+                                    </button>
+                                  )}
+                                  {!member.leaving && (circle.status === 'Active' || circle.status === 'Filling') && (
+                                    <button
+                                      type="button"
+                                      id={`member-card-flag-leaving-${member.slot}`}
+                                      className="btn-secondary"
+                                      style={{ padding: '0.35rem 0.75rem', fontSize: '0.75rem', gap: '0.3rem' }}
+                                      disabled={txPending}
+                                      onClick={() => handleFlagLeaving(member)}
+                                      title="Flag leaving to exit at reset"
+                                    >
+                                      <LogOut size={12} /> Flag leaving
+                                    </button>
+                                  )}
+                                  {((circle.status === 'Filling' && member.leaving) || circle.status === 'Closing') && (
+                                    <button
+                                      type="button"
+                                      id={`member-card-exit-${member.slot}`}
+                                      className="btn-primary"
+                                      style={{ padding: '0.35rem 0.75rem', fontSize: '0.75rem', gap: '0.3rem' }}
+                                      disabled={txPending}
+                                      onClick={() => handleExitMember(member)}
+                                      title="Exit circle and reclaim deposit"
+                                    >
+                                      <LogOut size={12} /> Exit circle
+                                    </button>
+                                  )}
+                                </>
+                              )}
+
+                              {/* Permissionless triggers for this member */}
+                              {circle.status === 'Closing' && (!connected || !publicKey || !member.wallet.equals(publicKey)) && (
+                                <button
+                                  type="button"
+                                  className="btn-secondary"
+                                  style={{ padding: '0.35rem 0.75rem', fontSize: '0.75rem', gap: '0.3rem' }}
+                                  disabled={txPending}
+                                  onClick={() => handleExitMember(member)}
+                                  title="Process exit for this member"
+                                >
+                                  <LogOut size={12} /> Exit member
+                                </button>
+                              )}
+
+                              {isCircleActive && !hasPaidThisPeriod && isGraceExpired && (
+                                <button
+                                  type="button"
+                                  className="btn-secondary"
+                                  style={{ padding: '0.35rem 0.75rem', fontSize: '0.75rem', gap: '0.3rem', borderColor: 'var(--status-removed)', color: 'var(--status-removed)' }}
+                                  disabled={txPending}
+                                  onClick={() => handleRemoveDefaulter(member)}
+                                  title="Remove late member and draw deposit"
+                                >
+                                  <ShieldAlert size={12} /> Remove defaulter
+                                </button>
+                              )}
                             </div>
                           )}
                         </div>
