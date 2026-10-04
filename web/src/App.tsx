@@ -1,13 +1,13 @@
 import type { FC } from 'react';
 import { useState, useEffect, useCallback } from 'react';
-import { WalletContextProvider } from './components/WalletContextProvider';
+import { WalletContextProvider, useWalletError } from './components/WalletContextProvider';
 import { Navbar } from './components/Navbar';
 import { CircleView } from './components/CircleView';
 import { CreateCircle } from './components/CreateCircle';
 import { LandingPage } from './components/LandingPage';
 import { PlanetBackdrop } from './components/PlanetBackdrop';
 import { SolthriftLogo } from './components/SolthriftLogo';
-import { BookOpen, ExternalLink } from 'lucide-react';
+import { BookOpen, ExternalLink, AlertCircle, X } from 'lucide-react';
 
 interface RouteState {
   tab: 'home' | 'circle' | 'create';
@@ -42,6 +42,36 @@ function parseCurrentRoute(): RouteState {
   // Default: Landing page (home route)
   return { tab: 'home', circleAddress: null };
 }
+
+const WalletErrorBanner: FC = () => {
+  const { walletError, clearWalletError } = useWalletError();
+
+  if (!walletError) return null;
+
+  return (
+    <div className="wallet-error-banner-wrapper">
+      <div
+        className="alert-box error-alert"
+        role="alert"
+        style={{ justifyContent: 'space-between', width: '100%', boxSizing: 'border-box' }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <AlertCircle size={18} style={{ flexShrink: 0 }} />
+          <span>{walletError}</span>
+        </div>
+        <button
+          type="button"
+          onClick={clearWalletError}
+          className="icon-action-btn"
+          aria-label="Dismiss message"
+          style={{ width: '28px', height: '28px', minWidth: '28px' }}
+        >
+          <X size={14} />
+        </button>
+      </div>
+    </div>
+  );
+};
 
 export const AppContent: FC = () => {
   const [route, setRoute] = useState<RouteState>(parseCurrentRoute);
@@ -83,6 +113,9 @@ export const AppContent: FC = () => {
           }}
         />
       )}
+
+      {/* Plain-English Wallet Connection Error Message */}
+      <WalletErrorBanner />
 
       {/* Main Content Area */}
       <main className={route.tab === 'home' ? 'main-content-landing' : 'main-content'}>

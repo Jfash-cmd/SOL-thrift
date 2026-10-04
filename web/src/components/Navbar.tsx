@@ -1,6 +1,5 @@
 import type { FC } from 'react';
-import { useWallet } from '@solana/wallet-adapter-react';
-import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
+import { CustomWalletButton } from './CustomWalletButton';
 import { SolthriftLogo } from './SolthriftLogo';
 
 interface NavbarProps {
@@ -10,8 +9,6 @@ interface NavbarProps {
 }
 
 export const Navbar: FC<NavbarProps> = ({ activeTab, setActiveTab, onNavigate }) => {
-  const { publicKey } = useWallet();
-
   const handleNav = (tab: 'home' | 'circle' | 'create') => {
     if (onNavigate) {
       onNavigate(tab);
@@ -57,9 +54,7 @@ export const Navbar: FC<NavbarProps> = ({ activeTab, setActiveTab, onNavigate })
         {/* Wallet Connection */}
         <div className="wallet-header-area">
           <div className="wallet-adapter-wrapper">
-            <WalletMultiButton className="custom-wallet-btn">
-              {publicKey ? undefined : 'Connect wallet'}
-            </WalletMultiButton>
+            <CustomWalletButton className="custom-wallet-btn" />
           </div>
         </div>
       </div>

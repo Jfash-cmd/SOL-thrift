@@ -1,7 +1,7 @@
 import type { FC } from 'react';
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
-import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
+import { CustomWalletButton } from './CustomWalletButton';
 import { PublicKey } from '@solana/web3.js';
 import {
   ArrowRight,
@@ -308,9 +308,7 @@ export const LandingPage: FC<LandingPageProps> = ({
             </div>
 
             <div className="landing-wallet-container">
-              <WalletMultiButton className="landing-wallet-btn">
-                {wallet.publicKey ? undefined : 'Connect wallet'}
-              </WalletMultiButton>
+              <CustomWalletButton className="landing-wallet-btn" />
             </div>
           </div>
         </Reveal>
