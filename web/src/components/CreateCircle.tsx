@@ -24,6 +24,7 @@ import type { TokenChoice } from '../types';
 import { calculateSlotDeposit, calculateSlotShortfall } from '../types';
 import { DEVNET_TOKEN_MINT, isPlaceholderMint } from '../config';
 import { CircleRing } from './CircleRing';
+import { GlassSelect } from './GlassSelect';
 import {
   getSolthriftProgram,
   getCirclePda,
@@ -38,6 +39,28 @@ import {
 interface CreateCircleProps {
   onCreated?: (circleAddress: string) => void;
 }
+
+const PERIOD_OPTIONS = [
+  { value: '20 seconds', label: '20 seconds (fast test)' },
+  { value: '1 minute', label: '1 minute (test)' },
+  { value: '2 minutes', label: '2 minutes (test)' },
+  { value: '5 minutes', label: '5 minutes (test)' },
+  { value: '10 minutes', label: '10 minutes (test)' },
+  { value: '1 day', label: '1 day (demo)' },
+  { value: '3 days', label: '3 days' },
+  { value: '1 week', label: '1 week (production)' },
+  { value: '2 weeks', label: '2 weeks' },
+  { value: '1 month', label: '1 month' },
+];
+
+const GRACE_OPTIONS = [
+  { value: '0 seconds', label: '0 seconds / 0 minutes (instant)' },
+  { value: '1 minute', label: '1 minute (test)' },
+  { value: '6 hours', label: '6 hours (demo)' },
+  { value: '12 hours', label: '12 hours' },
+  { value: '24 hours', label: '24 hours' },
+  { value: '48 hours', label: '48 hours' },
+];
 
 export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
   const { connection } = useConnection();
@@ -460,42 +483,26 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
                 <label htmlFor="period-select" className="form-label">
                   <Clock size={15} /> Time per turn
                 </label>
-                <select
+                <GlassSelect
                   id="period-select"
-                  className="select-input"
                   value={period}
-                  onChange={(e) => setPeriod(e.target.value)}
-                >
-                  <option value="20 seconds">20 seconds (fast test)</option>
-                  <option value="1 minute">1 minute (test)</option>
-                  <option value="2 minutes">2 minutes (test)</option>
-                  <option value="5 minutes">5 minutes (test)</option>
-                  <option value="10 minutes">10 minutes (test)</option>
-                  <option value="1 day">1 day (demo)</option>
-                  <option value="3 days">3 days</option>
-                  <option value="1 week">1 week (production)</option>
-                  <option value="2 weeks">2 weeks</option>
-                  <option value="1 month">1 month</option>
-                </select>
+                  options={PERIOD_OPTIONS}
+                  onChange={setPeriod}
+                  ariaLabel="Time per turn"
+                />
               </div>
 
               <div className="form-group">
                 <label htmlFor="grace-select" className="form-label">
                   <ShieldAlert size={15} /> Extra time to pay
                 </label>
-                <select
+                <GlassSelect
                   id="grace-select"
-                  className="select-input"
                   value={grace}
-                  onChange={(e) => setGrace(e.target.value)}
-                >
-                  <option value="0 seconds">0 seconds / 0 minutes (instant)</option>
-                  <option value="1 minute">1 minute (test)</option>
-                  <option value="6 hours">6 hours (demo)</option>
-                  <option value="12 hours">12 hours</option>
-                  <option value="24 hours">24 hours</option>
-                  <option value="48 hours">48 hours</option>
-                </select>
+                  options={GRACE_OPTIONS}
+                  onChange={setGrace}
+                  ariaLabel="Extra time to pay"
+                />
               </div>
             </div>
 
