@@ -36,6 +36,7 @@ import {
   getTokenBalance,
   getExplorerUrl,
   translateProgramError,
+  executeProgramMethod,
 } from '../solthriftClient';
 
 interface CreateCircleProps {
@@ -67,8 +68,9 @@ const GRACE_OPTIONS = [
 
 export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
   const { connection } = useConnection();
-  const wallet = useAnchorWallet();
-  const { connected } = useWallet();
+  const wallet = useWallet();
+  const anchorWallet = useAnchorWallet();
+  const { connected } = wallet;
 
   // Form parameters
   const [token, setToken] = useState<TokenChoice>('USDC');
@@ -284,7 +286,7 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
         wallet.publicKey
       );
 
-      const program = getSolthriftProgram(connection, wallet);
+      const program = getSolthriftProgram(connection, anchorWallet);
 
       const method = program.methods
         .createCircle(
@@ -309,11 +311,13 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
           rent: SYSVAR_RENT_PUBKEY,
         });
 
-      if (createAtaIx) {
-        method.preInstructions([createAtaIx]);
-      }
+      const { signature: sig } = await executeProgramMethod({
+        connection,
+        wallet,
+        method,
+        preInstructions: createAtaIx ? [createAtaIx] : undefined,
+      });
 
-      const sig = await method.rpc();
       setTxSignature(sig);
       setCreatedCircleAddress(circlePda.toBase58());
       setTxState('success');

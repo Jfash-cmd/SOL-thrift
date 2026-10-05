@@ -41,6 +41,7 @@ import {
   getMintDecimals,
   getExplorerUrl,
   translateProgramError,
+  executeProgramMethod,
 } from '../solthriftClient';
 import { isPlaceholderMint } from '../config';
 import { CircleRing } from './CircleRing';
@@ -643,11 +644,12 @@ export const CircleView: FC<CircleViewProps> = ({
           systemProgram: SystemProgram.programId,
         });
 
-      if (preInstructions.length > 0) {
-        method.preInstructions(preInstructions);
-      }
-
-      const sig = await method.rpc();
+      const { signature: sig } = await executeProgramMethod({
+        connection,
+        wallet,
+        method,
+        preInstructions: preInstructions.length > 0 ? preInstructions : undefined,
+      });
       setTxSuccess({
         signature: sig,
         message: `You joined the circle. Seat ${nextSlot} is locked.`,
@@ -709,11 +711,12 @@ export const CircleView: FC<CircleViewProps> = ({
           tokenProgram: TOKEN_PROGRAM_ID,
         });
 
-      if (preInstructions.length > 0) {
-        method.preInstructions(preInstructions);
-      }
-
-      const sig = await method.rpc();
+      const { signature: sig } = await executeProgramMethod({
+        connection,
+        wallet,
+        method,
+        preInstructions: preInstructions.length > 0 ? preInstructions : undefined,
+      });
       setTxSuccess({
         signature: sig,
         message: 'You paid for this turn.',
@@ -786,11 +789,12 @@ export const CircleView: FC<CircleViewProps> = ({
           tokenProgram: TOKEN_PROGRAM_ID,
         });
 
-      if (preInstructions.length > 0) {
-        method.preInstructions(preInstructions);
-      }
-
-      const sig = await method.rpc();
+      const { signature: sig } = await executeProgramMethod({
+        connection,
+        wallet,
+        method,
+        preInstructions: preInstructions.length > 0 ? preInstructions : undefined,
+      });
       setTxSuccess({
         signature: sig,
         message: `You paid out to ${payoutRecipientDisplay}.`,
@@ -854,11 +858,12 @@ export const CircleView: FC<CircleViewProps> = ({
           tokenProgram: TOKEN_PROGRAM_ID,
         });
 
-      if (preInstructions.length > 0) {
-        method.preInstructions(preInstructions);
-      }
-
-      const sig = await method.rpc();
+      const { signature: sig } = await executeProgramMethod({
+        connection,
+        wallet,
+        method,
+        preInstructions: preInstructions.length > 0 ? preInstructions : undefined,
+      });
       setTxSuccess({
         signature: sig,
         message: 'You removed the late member.',
@@ -899,14 +904,19 @@ export const CircleView: FC<CircleViewProps> = ({
 
     try {
       const program = getSolthriftProgram(connection, wallet as any);
-      const sig = await program.methods
+      const method = program.methods
         .flagLeaving()
         .accounts({
           circle: circle.address,
           member: memberToFlag.memberPda,
           memberWallet: publicKey,
-        })
-        .rpc();
+        });
+
+      const { signature: sig } = await executeProgramMethod({
+        connection,
+        wallet,
+        method,
+      });
 
       setTxSuccess({
         signature: sig,
@@ -971,11 +981,12 @@ export const CircleView: FC<CircleViewProps> = ({
           tokenProgram: TOKEN_PROGRAM_ID,
         });
 
-      if (preInstructions.length > 0) {
-        method.preInstructions(preInstructions);
-      }
-
-      const sig = await method.rpc();
+      const { signature: sig } = await executeProgramMethod({
+        connection,
+        wallet,
+        method,
+        preInstructions: preInstructions.length > 0 ? preInstructions : undefined,
+      });
       setTxSuccess({
         signature: sig,
         message: 'You exited the circle.',
@@ -1036,11 +1047,12 @@ export const CircleView: FC<CircleViewProps> = ({
           tokenProgram: TOKEN_PROGRAM_ID,
         });
 
-      if (preInstructions.length > 0) {
-        method.preInstructions(preInstructions);
-      }
-
-      const sig = await method.rpc();
+      const { signature: sig } = await executeProgramMethod({
+        connection,
+        wallet,
+        method,
+        preInstructions: preInstructions.length > 0 ? preInstructions : undefined,
+      });
       setTxSuccess({
         signature: sig,
         message: 'You claimed your contribution refund.',
@@ -1101,11 +1113,12 @@ export const CircleView: FC<CircleViewProps> = ({
           tokenProgram: TOKEN_PROGRAM_ID,
         });
 
-      if (preInstructions.length > 0) {
-        method.preInstructions(preInstructions);
-      }
-
-      const sig = await method.rpc();
+      const { signature: sig } = await executeProgramMethod({
+        connection,
+        wallet,
+        method,
+        preInstructions: preInstructions.length > 0 ? preInstructions : undefined,
+      });
       setTxSuccess({
         signature: sig,
         message: 'You claimed your forfeit share.',
