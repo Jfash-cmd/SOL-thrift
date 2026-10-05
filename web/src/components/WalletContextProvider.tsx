@@ -3,6 +3,8 @@ import { useMemo, useState, useCallback, createContext, useContext } from 'react
 import { ConnectionProvider, WalletProvider } from '@solana/wallet-adapter-react';
 import { WalletModalProvider } from '@solana/wallet-adapter-react-ui';
 import { clusterApiUrl } from '@solana/web3.js';
+import { PhantomWalletAdapter } from '@solana/wallet-adapter-phantom';
+import { SolflareWalletAdapter } from '@solana/wallet-adapter-solflare';
 
 export interface WalletErrorContextType {
   walletError: string | null;
@@ -36,8 +38,14 @@ export const WalletContextProvider: FC<Props> = ({ children }) => {
   // Spec requirement: Devnet only
   const endpoint = useMemo(() => clusterApiUrl('devnet'), []);
 
-  // Standard wallets (Phantom, Solflare, Backpack, etc.) are auto-detected via Wallet Standard
-  const wallets = useMemo(() => [], []);
+  // Dedicated adapters ensure Phantom and Solflare are both available, alongside any auto-detected standard wallets
+  const wallets = useMemo(
+    () => [
+      new PhantomWalletAdapter(),
+      new SolflareWalletAdapter(),
+    ],
+    []
+  );
 
   // Plain-English error state displayed on the page
   const [walletError, setWalletError] = useState<string | null>(null);

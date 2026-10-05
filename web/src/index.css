@@ -1186,11 +1186,27 @@ a:hover {
   line-height: 1.4;
 }
 
-/* Hide the list's decorative dividers and extra "more options" styling */
+/* Hide the list's decorative dividers and extra "more options" toggle button */
 .wallet-adapter-modal-list-more,
-.wallet-adapter-modal-collapse-button,
-.wallet-adapter-collapse {
+.wallet-adapter-modal-collapse-button {
   display: none !important;
+}
+
+/* Ensure all wallets in the list (including Solflare) are directly visible */
+.wallet-adapter-collapse {
+  display: block !important;
+  height: auto !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  width: 100% !important;
+}
+
+.wallet-adapter-collapse .wallet-adapter-modal-list {
+  margin: 0 !important;
+  padding: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 0.65rem !important;
 }
 
 /* If no wallet is installed, show: "No wallet found. Install Phantom or Solflare, then reload this page." */

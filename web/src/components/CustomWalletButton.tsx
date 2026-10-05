@@ -95,11 +95,17 @@ export const CustomWalletButton: FC<CustomWalletButtonProps> = ({ className = ''
   }, [publicKey]);
 
   // Dropdown action: Change wallet
-  const handleChangeWallet = useCallback(() => {
+  const handleChangeWallet = useCallback(async () => {
     setMenuOpen(false);
     attemptedWalletRef.current = null;
+    try {
+      await disconnect();
+    } catch {}
+    try {
+      select(null as any);
+    } catch {}
     setVisible(true);
-  }, [setVisible]);
+  }, [disconnect, select, setVisible]);
 
   // Dropdown action: Disconnect
   const handleDisconnect = useCallback(async () => {
