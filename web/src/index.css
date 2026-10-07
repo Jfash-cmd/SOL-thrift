@@ -819,24 +819,43 @@ body {
   }
 }
 
-/* Under 640px width: freeze animation, static planet and ring, reduce blur to 12px */
-@media (max-width: 640px) {
+/* Mobile performance optimization (< 768px):
+   - Kill CPU-heavy SVG filter, orbit tracks, and 3D spinners
+   - Hide background planet on subpages so GPU focuses 100% on app UI
+   - Replace expensive multi-layer backdrop-filter on cards with high-performance dark frosted glass
+*/
+@media (max-width: 768px) {
+  .saturn-clouds-turbulence {
+    display: none !important;
+  }
+
+  .saturn-orbit-track-container,
+  .saturn-moon-orbit-spinner,
+  .saturn-ring-speckle,
+  .saturn-ring-microgrooves {
+    display: none !important;
+  }
+
   .saturn-ring-surface,
   .saturn-clouds-strip,
   .saturn-clouds-fine,
-  .saturn-moon-orbit-spinner,
-  .saturn-moon-pos {
+  .saturn-system {
     animation: none !important;
   }
 
-  .saturn-system {
-    transform: scale(0.58) !important;
-    right: -130px !important;
-    bottom: -150px !important;
-    opacity: 0.38 !important;
+  /* Subpages hide 3D planet completely for max battery and fluid 60/120fps scrolling */
+  .planet-backdrop-subpage .saturn-system {
+    display: none !important;
   }
 
-  /* Reduce blur on panels and cards to 12px */
+  .planet-backdrop-home .saturn-system {
+    transform: scale(0.55) !important;
+    right: -130px !important;
+    bottom: -150px !important;
+    opacity: 0.28 !important;
+  }
+
+  /* Replace heavy GPU backdrop-filter on mobile cards with rich dark opaque glass */
   .glass-panel,
   .circle-header-section,
   .form-card,
@@ -859,10 +878,23 @@ body {
   .demo-funding-card,
   .demo-mode-banner,
   .member-card,
-  .site-header,
   .wallet-connected-modal-card {
-    backdrop-filter: blur(12px) saturate(120%) !important;
-    -webkit-backdrop-filter: blur(12px) saturate(120%) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    background: rgba(14, 18, 16, 0.94) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45) !important;
+  }
+
+  /* Header keeps light 8px blur */
+  .site-header {
+    backdrop-filter: blur(8px) !important;
+    -webkit-backdrop-filter: blur(8px) !important;
+    background: rgba(11, 13, 12, 0.92) !important;
+  }
+
+  .reveal-wrapper {
+    will-change: auto !important;
   }
 }
 
@@ -3489,7 +3521,7 @@ a:hover {
     max-width: 100vw !important;
   }
 
-  .site-header,
+  /* Fast GPU-rendered dark glass cards on mobile */
   .glass-panel,
   .card,
   .circle-header-section,
@@ -3503,8 +3535,16 @@ a:hover {
   .member-card,
   .alert-box,
   .site-footer {
-    backdrop-filter: blur(12px) saturate(120%) !important;
-    -webkit-backdrop-filter: blur(12px) saturate(120%) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    background: rgba(14, 18, 16, 0.94) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  }
+
+  .site-header {
+    backdrop-filter: blur(8px) !important;
+    -webkit-backdrop-filter: blur(8px) !important;
+    background: rgba(11, 13, 12, 0.92) !important;
   }
 
   /* Header mobile layout: Brand & Wallet top row, Nav tabs full-width segmented row below */
