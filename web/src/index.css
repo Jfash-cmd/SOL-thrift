@@ -2609,8 +2609,8 @@ a:hover {
 }
 
 .member-card.card-recipient {
-  border-color: var(--status-recipient-border);
-  box-shadow: 0 0 16px rgba(192, 132, 252, 0.12),
+  border-color: rgba(255, 255, 255, 0.35);
+  box-shadow: 0 0 16px rgba(255, 255, 255, 0.12),
               var(--glass-highlight);
 }
 
@@ -4494,9 +4494,11 @@ a.btn-secondary,
    ============================================================================ */
 
 .demo-mode-banner {
-  background: rgba(14, 165, 233, 0.08);
-  border: 1px solid rgba(56, 189, 248, 0.35);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 8px 24px rgba(14, 165, 233, 0.15);
+  background: var(--glass-bg);
+  backdrop-filter: blur(24px) saturate(120%);
+  -webkit-backdrop-filter: blur(24px) saturate(120%);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 0 24px rgba(255, 255, 255, 0.08);
   border-radius: var(--radius-card, 20px);
   padding: 1rem 1.25rem;
   margin-bottom: 1.5rem;
@@ -4514,8 +4516,8 @@ a.btn-secondary,
   left: 0;
   width: 4px;
   height: 100%;
-  background: #38bdf8;
-  box-shadow: 0 0 10px #38bdf8;
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
 }
 
 .demo-mode-toggle-btn {
@@ -4534,18 +4536,18 @@ a.btn-secondary,
 }
 
 .demo-mode-toggle-btn.active {
-  background: rgba(56, 189, 248, 0.18);
-  border-color: rgba(56, 189, 248, 0.55);
-  color: #38bdf8;
-  box-shadow: 0 0 12px rgba(56, 189, 248, 0.25);
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.35);
+  color: #ffffff;
+  box-shadow: 0 0 14px rgba(255, 255, 255, 0.16);
 }
 
 .demo-funding-card {
   background: var(--glass-bg);
   backdrop-filter: blur(24px) saturate(120%);
   -webkit-backdrop-filter: blur(24px) saturate(120%);
-  border: 1px solid var(--glass-border);
-  box-shadow: var(--glass-highlight);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: var(--glass-highlight), 0 0 24px rgba(255, 255, 255, 0.08);
   border-radius: var(--radius-card, 20px);
   padding: 1.25rem 1.4rem;
   margin-bottom: 1.5rem;
@@ -4585,16 +4587,16 @@ a.btn-secondary,
 }
 
 .demo-input-num:focus {
-  border-color: #38bdf8;
-  box-shadow: 0 0 8px rgba(56, 189, 248, 0.3);
+  border-color: rgba(255, 255, 255, 0.6);
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.2);
 }
 
 .autopilot-card {
-  background: rgba(16, 24, 39, 0.85);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border: 1px solid rgba(56, 189, 248, 0.3);
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  background: var(--glass-bg);
+  backdrop-filter: blur(24px) saturate(120%);
+  -webkit-backdrop-filter: blur(24px) saturate(120%);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: var(--glass-highlight), 0 0 24px rgba(255, 255, 255, 0.08);
   border-radius: var(--radius-card, 20px);
   padding: 1.35rem 1.5rem;
   margin-bottom: 1.5rem;
@@ -4614,8 +4616,9 @@ a.btn-secondary,
 }
 
 .autopilot-step-item.active {
-  background: rgba(56, 189, 248, 0.08);
-  border-color: rgba(56, 189, 248, 0.4);
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.3);
+  box-shadow: 0 0 12px rgba(255, 255, 255, 0.08);
 }
 
 .autopilot-step-item.waiting {

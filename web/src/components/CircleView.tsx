@@ -2118,7 +2118,7 @@ export const CircleView: FC<CircleViewProps> = ({
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-                  <Sparkles size={18} style={{ color: '#38bdf8' }} />
+                  <Sparkles size={18} style={{ color: 'rgba(255, 255, 255, 0.9)' }} />
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                       <strong style={{ fontSize: '0.95rem', color: '#ffffff' }}>Demo Mode</strong>
@@ -2126,8 +2126,8 @@ export const CircleView: FC<CircleViewProps> = ({
                         className="badge-pill"
                         style={{
                           fontSize: '0.68rem',
-                          color: '#38bdf8',
-                          borderColor: 'rgba(56, 189, 248, 0.35)',
+                          color: 'rgba(255, 255, 255, 0.9)',
+                          borderColor: 'rgba(255, 255, 255, 0.25)',
                           padding: '1px 7px',
                         }}
                       >
@@ -2163,8 +2163,8 @@ export const CircleView: FC<CircleViewProps> = ({
                           height: 'auto',
                           minHeight: 'unset',
                           gap: '0.4rem',
-                          background: autopilotRunning ? 'rgba(56, 189, 248, 0.25)' : undefined,
-                          borderColor: autopilotRunning ? '#38bdf8' : undefined,
+                          background: autopilotRunning ? 'rgba(255, 255, 255, 0.15)' : undefined,
+                          borderColor: autopilotRunning ? 'rgba(255, 255, 255, 0.4)' : undefined,
                         }}
                         onClick={() => {
                           setShowAutopilot(true);
@@ -2200,8 +2200,8 @@ export const CircleView: FC<CircleViewProps> = ({
                         width: '8px',
                         height: '8px',
                         borderRadius: '50%',
-                        background: demoMode ? '#38bdf8' : 'rgba(255, 255, 255, 0.35)',
-                        boxShadow: demoMode ? '0 0 8px #38bdf8' : 'none',
+                        background: demoMode ? '#ffffff' : 'rgba(255, 255, 255, 0.35)',
+                        boxShadow: demoMode ? '0 0 8px rgba(255, 255, 255, 0.8)' : 'none',
                       }}
                     />
                     <span>Demo mode: {demoMode ? 'ON' : 'OFF'}</span>
@@ -2231,7 +2231,7 @@ export const CircleView: FC<CircleViewProps> = ({
                           gap: '0.45rem',
                         }}
                       >
-                        <Sparkles size={16} style={{ color: '#38bdf8' }} />
+                        <Sparkles size={16} style={{ color: 'rgba(255, 255, 255, 0.9)' }} />
                         Demo mode: seats 2 to 4 use throwaway test keys. Seat 1 is your real wallet.
                       </strong>
                       <p
@@ -2270,7 +2270,7 @@ export const CircleView: FC<CircleViewProps> = ({
                                 {kp.publicKey.toBase58().slice(0, 4)}...{kp.publicKey.toBase58().slice(-4)}
                               </span>
                               {b ? (
-                                <span style={{ color: '#38bdf8', fontSize: '0.72rem' }}>
+                                <span style={{ color: 'rgba(255, 255, 255, 0.85)', fontSize: '0.72rem' }}>
                                   ({b.sol.toFixed(2)} SOL · {b.token} {tokenSymbol})
                                 </span>
                               ) : null}
@@ -2289,7 +2289,7 @@ export const CircleView: FC<CircleViewProps> = ({
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
                     <div>
                       <h3 style={{ margin: 0, fontSize: '1.05rem', color: '#ffffff', display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
-                        <Coins size={17} style={{ color: '#38bdf8' }} />
+                        <Coins size={17} style={{ color: 'rgba(255, 255, 255, 0.9)' }} />
                         Fund Demo Members
                       </h3>
                       <p style={{ margin: '0.2rem 0 0', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
@@ -2414,7 +2414,7 @@ export const CircleView: FC<CircleViewProps> = ({
                 <div className="autopilot-card">
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <Play size={18} style={{ color: '#38bdf8' }} />
+                      <Play size={18} style={{ color: '#ffffff' }} />
                       <h3 style={{ margin: 0, fontSize: '1.05rem', color: '#ffffff' }}>
                         Autopilot Demo Walkthrough
                       </h3>
@@ -2423,9 +2423,9 @@ export const CircleView: FC<CircleViewProps> = ({
                           className="badge-pill"
                           style={{
                             fontSize: '0.7rem',
-                            color: '#38bdf8',
-                            borderColor: 'rgba(56, 189, 248, 0.4)',
-                            background: 'rgba(56, 189, 248, 0.1)',
+                            color: '#ffffff',
+                            borderColor: 'rgba(255, 255, 255, 0.35)',
+                            background: 'rgba(255, 255, 255, 0.08)',
                           }}
                         >
                           Running
@@ -2534,8 +2534,9 @@ export const CircleView: FC<CircleViewProps> = ({
                   {autopilotCountdown !== null && (
                     <div
                       style={{
-                        background: 'rgba(56, 189, 248, 0.12)',
-                        border: '1px solid rgba(56, 189, 248, 0.45)',
+                        background: 'rgba(255, 255, 255, 0.05)',
+                        border: '1px solid rgba(255, 255, 255, 0.2)',
+                        boxShadow: '0 0 16px rgba(255, 255, 255, 0.06)',
                         borderRadius: '14px',
                         padding: '0.85rem 1.25rem',
                         marginBottom: '1rem',
@@ -2544,12 +2545,12 @@ export const CircleView: FC<CircleViewProps> = ({
                         gap: '0.75rem',
                       }}
                     >
-                      <Clock size={18} style={{ color: '#38bdf8' }} />
+                      <Clock size={18} style={{ color: '#ffffff' }} />
                       <div>
-                        <strong style={{ color: '#38bdf8', fontSize: '0.9rem' }}>
+                        <strong style={{ color: '#ffffff', fontSize: '0.9rem' }}>
                           Waiting for Turn 2 grace period deadline...
                         </strong>
-                        <div style={{ fontSize: '0.82rem', color: '#e0f2fe' }}>
+                        <div style={{ fontSize: '0.82rem', color: 'rgba(255, 255, 255, 0.85)' }}>
                           Live countdown: <strong>{autopilotCountdown}s</strong> remaining before Seat 4 can be removed on-chain.
                         </div>
                       </div>
@@ -2612,7 +2613,7 @@ export const CircleView: FC<CircleViewProps> = ({
                         <div key={step.id} className={itemClass}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
                             <div style={{ width: '22px', display: 'flex', justifyContent: 'center' }}>
-                              {isRunning && <Loader2 size={15} className="spinner-icon text-accent" />}
+                              {isRunning && <Loader2 size={15} className="spinner-icon" style={{ color: '#ffffff' }} />}
                               {isDone && <CheckCircle2 size={16} className="text-green" />}
                               {isWaiting && <Clock size={16} style={{ color: '#f59e0b' }} />}
                               {isFailed && <AlertTriangle size={16} className="text-red" />}
@@ -2625,7 +2626,7 @@ export const CircleView: FC<CircleViewProps> = ({
                               <span
                                 style={{
                                   fontWeight: isRunning || isWaiting ? 600 : 500,
-                                  color: isDone ? '#ffffff' : isRunning ? '#38bdf8' : isWaiting ? '#fbbf24' : 'var(--text-muted)',
+                                  color: isDone ? '#ffffff' : isRunning ? '#ffffff' : isWaiting ? '#fbbf24' : 'var(--text-muted)',
                                 }}
                               >
                                 {step.title}
@@ -2647,7 +2648,7 @@ export const CircleView: FC<CircleViewProps> = ({
                                 style={{
                                   fontSize: '0.72rem',
                                   fontFamily: 'var(--font-mono)',
-                                  color: '#38bdf8',
+                                  color: '#ffffff',
                                   textDecoration: 'underline',
                                   display: 'flex',
                                   alignItems: 'center',
@@ -2667,7 +2668,7 @@ export const CircleView: FC<CircleViewProps> = ({
                                 color: isDone
                                   ? '#10b981'
                                   : isRunning
-                                  ? '#38bdf8'
+                                  ? '#ffffff'
                                   : isWaiting
                                   ? '#f59e0b'
                                   : isFailed
@@ -2807,7 +2808,7 @@ export const CircleView: FC<CircleViewProps> = ({
                       : isSelected
                       ? 'rgba(255, 255, 255, 0.06)'
                       : isDemoSeat
-                      ? 'rgba(56, 189, 248, 0.04)'
+                      ? 'rgba(255, 255, 255, 0.03)'
                       : isWalletConnected
                       ? 'rgba(255, 255, 255, 0.04)'
                       : 'rgba(255, 255, 255, 0.015)';
@@ -2815,9 +2816,9 @@ export const CircleView: FC<CircleViewProps> = ({
                     const cardBorder = isActiveNow
                       ? '1px solid rgba(255, 255, 255, 0.45)'
                       : isSelected
-                      ? '1px solid rgba(56, 189, 248, 0.65)'
+                      ? '1px solid rgba(255, 255, 255, 0.55)'
                       : isDemoSeat
-                      ? '1px solid rgba(56, 189, 248, 0.35)'
+                      ? '1px solid rgba(255, 255, 255, 0.22)'
                       : canJoinThisSeat
                       ? '1px solid rgba(255, 255, 255, 0.22)'
                       : isWalletConnected
@@ -2837,7 +2838,7 @@ export const CircleView: FC<CircleViewProps> = ({
                           background: cardBg,
                           border: cardBorder,
                           boxShadow: isSelected
-                            ? '0 0 14px rgba(56, 189, 248, 0.25), var(--glass-highlight)'
+                            ? '0 0 16px rgba(255, 255, 255, 0.2), var(--glass-highlight)'
                             : isActiveNow
                             ? 'var(--glass-highlight)'
                             : 'none',
@@ -2866,9 +2867,9 @@ export const CircleView: FC<CircleViewProps> = ({
                                     margin: 0,
                                     fontSize: '0.65rem',
                                     padding: '1px 5px',
-                                    color: '#38bdf8',
-                                    borderColor: 'rgba(56, 189, 248, 0.4)',
-                                    background: 'rgba(56, 189, 248, 0.1)',
+                                    color: '#ffffff',
+                                    borderColor: 'rgba(255, 255, 255, 0.3)',
+                                    background: 'rgba(255, 255, 255, 0.08)',
                                   }}
                                 >
                                   ⚡ Demo Key
@@ -2880,7 +2881,7 @@ export const CircleView: FC<CircleViewProps> = ({
                                 <Check size={11} /> Active Now
                               </span>
                             ) : isDemoSeat ? (
-                              <span className="badge-pill" style={{ margin: 0, fontSize: '0.68rem', padding: '2px 8px', color: '#38bdf8', borderColor: 'rgba(56, 189, 248, 0.35)' }}>
+                              <span className="badge-pill" style={{ margin: 0, fontSize: '0.68rem', padding: '2px 8px', color: 'rgba(255, 255, 255, 0.85)', borderColor: 'rgba(255, 255, 255, 0.25)' }}>
                                 Ready
                               </span>
                             ) : isWalletConnected ? (
@@ -2904,7 +2905,7 @@ export const CircleView: FC<CircleViewProps> = ({
                               <span style={{ color: 'var(--text-faint)' }}>Switch Solflare to Acc {slotNum}</span>
                             )}
                             {demoBal && (
-                              <div style={{ fontSize: '0.72rem', color: demoBal.sol >= 0.01 ? '#38bdf8' : '#f59e0b', marginTop: '2px' }}>
+                              <div style={{ fontSize: '0.72rem', color: demoBal.sol >= 0.01 ? 'rgba(255, 255, 255, 0.85)' : '#f59e0b', marginTop: '2px' }}>
                                 {demoBal.sol.toFixed(3)} SOL · {demoBal.token} {tokenSymbol}
                               </div>
                             )}
