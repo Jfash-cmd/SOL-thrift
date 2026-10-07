@@ -60,47 +60,12 @@ $$\text{Deposit}(k) = \max\left(\frac{\text{deposit\_pct}}{100} \times (N - k) \
 
 ## 3. Default Handling & Insolvency Protection
 
-If a member fails to contribute before `period_deadline + grace_period`, any address can invoke `remove_defaulter`.
-
-```
-                    ┌───────────────────────────────┐
-                    │  Member missed grace deadline │
-                    └───────────────┬───────────────┘
-                                    │
-                                    ▼
-                    ┌───────────────────────────────┐
-                    │ Has member already been paid? │
-                    └───────┬───────────────┬───────┘
-                            │               │
-                    NO      │               │ YES
-            ┌───────────────┘               └────────────────┐
-            ▼                                                ▼
-┌───────────────────────────────┐        ┌──────────────────────────────────────┐
-│ 1. Full deposit refunded      │        │ 1. Current contribution taken from   │
-│ 2. Removed from payout order  │        │    deposit to cover active pot       │
-│ 3. Pot scales down for future │        │ 2. Remaining owed locked to Reserve  │
-│    periods                    │        │ 3. Future pots draw from Reserve     │
-└───────────────┬───────────────┘        └──────────────────┬───────────────────┘
-                │                                           │
-                └───────────────────┬───────────────────────┘
-                                    │
-                                    ▼
-                ┌───────────────────────────────────────┐
-                │ Are remaining active members < 3?     │
-                └───────┬───────────────────────┬───────┘
-                        │                       │
-                NO      │                       │ YES
-                        ▼                       ▼
-            [ Continue Round ]          [ Status -> Closing ]
-                                        • Deposits refunded
-                                        • Forfeits split among unpaid
-                                        • Active period contributions refunded
-```
+If a member fails to contribute before `period_deadline + grace_period`, any address can invoke `remove_defaulter`. The program resolves the default based on whether that member has already collected a payout:
 
 ### When the Defaulter was NOT Paid:
 - Their slot is removed from the payout order (`order_len -= 1`).
 - Because they never took unearned funds, their remaining deposit is returned in full to their wallet.
-- Future pots adjust to the new active member count.
+- Future pots adjust down to match the new active member count.
 
 ### When the Defaulter HAS Been Paid:
 - **Immediate Coverage**: Exactly $c$ is deducted from the defaulter's deposit to cover the current period's pot, ensuring current contributors are not shortchanged.
@@ -110,11 +75,11 @@ If a member fails to contribute before `period_deadline + grace_period`, any add
 - If any deposit remains beyond future liabilities, it is refunded to the defaulter.
 
 ### Minimum Member Fallback (`Closing` State):
-If active membership drops below 3:
-- The round halts immediately and transitions to `Closing`.
-- The defaulter forfeits their deposit and the circle sweeps any accumulated reserve into a shared pool.
-- The forfeit pool is distributed evenly across all active members who had not yet received their payout (`forfeit_per_claimant`).
-- Any member who paid into the current unfinished period can call `claim_refund` to pull their contribution back out of the vault.
+If removals cause the active member count to drop below 3:
+- The round halts immediately and transitions to `Closing` mode.
+- The defaulter forfeits their remaining deposit, and any accumulated reserve is pooled together into a shared forfeit fund.
+- The forfeit fund is split evenly across all active members who had not yet received their payout (`forfeit_per_claimant`).
+- Any member who already contributed to the unfinished period can call `claim_refund` to pull their contribution back from the vault.
 
 ---
 
@@ -128,26 +93,14 @@ If active membership drops below 3:
 | **`Vault`** | `["vault", circle_pda]` | SPL Token Account owned by the Circle PDA. Holds locked deposits, periodic contributions, and reserve funds. |
 | **`Member`** | `["member", circle_pda, member_wallet_pubkey]` | Tracks individual member state: slot number, deposit balance, payment history, payout receipt status, and flags. Size: `87 bytes`. |
 
-### State Machine
+### Lifecycle States
 
-```
-              ┌─────────────────────────┐
-              │          Open           │
-              └───────┬───────────┬─────┘
-   N members  │                   │ open_deadline expired
-   joined     ▼                   ▼
-┌──────────────────┐     ┌──────────────────┐
-│      Active      │     │     Closing      │
-└─────────┬────────┘     └──────────────────┘
-All paid  │                       ▲
-once      ▼                       │ Active members < 3
-┌──────────────────┐              │
-│     Filling      ├──────────────┘
-└─────────┬────────┘
-New round │
-started   ▼
-[ Return to Active ]
-```
+A Solthrift circle progresses through four distinct operational states:
+
+- **`Open`**: The circle is created and waiting for members to join. Each participant deposits their calculated requirement upon entry. Once all target seats are occupied, the circle activates automatically. If the join deadline expires without reaching capacity, anyone can cancel the circle, transitioning it to `Closing` so all joined members can withdraw their deposits in full.
+- **`Active`**: Normal rounds are in progress. In each period, members submit their contribution. When all active members have contributed, anyone can trigger `payout` to send the pooled pot to that period's recipient. If a member misses a payment past the grace deadline, they can be evicted via `remove_defaulter`.
+- **`Filling`**: A 2-day intermission window between rounds. Once every active member has collected one payout, the round concludes. Members who previously called `flag_leaving` can exit penalty-free and retrieve their deposit (`exit_member`). New members can claim empty seats (`join_open_seat`). When ready, `start_next_round` begins the next cycle.
+- **`Closing`**: Emergency shutdown state triggered if active members drop below 3, or if an open circle expires before filling. All future rounds are halted. Members recover their remaining deposits, contributors reclaim funds from unfinished periods via `claim_refund`, and unpaid members collect their share of forfeited deposits via `claim_forfeit`.
 
 ### Instruction Set
 
