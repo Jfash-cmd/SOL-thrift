@@ -3,7 +3,11 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { PublicKey, TransactionInstruction, SystemProgram, Keypair } from '@solana/web3.js';
-import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
+import {
+  TOKEN_PROGRAM_ID,
+  getAssociatedTokenAddressSync,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+} from '@solana/spl-token';
 import { BN } from '@coral-xyz/anchor';
 import {
   ShieldAlert,
@@ -81,11 +85,22 @@ export const CircleView: FC<CircleViewProps> = ({
   // Selected seat for cockpit interaction & seamless wallet switching
   const [selectedSeat, setSelectedSeat] = useState<number>(1);
 
-  // Request ID and cancellation tracking for wallet switching (Requirement 2)
+  // Request ID and cancellation tracking for wallet switching (Requirement 2 & 4)
   const walletRequestIdRef = useRef<number>(0);
   const activeAbortControllerRef = useRef<AbortController | null>(null);
   const walletDebounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [isWalletDataLoading, setIsWalletDataLoading] = useState<boolean>(false);
+  const [walletLoadingStep, setWalletLoadingStep] = useState<string | null>(null);
+  const [userTokenBalance, setUserTokenBalance] = useState<number | null>(null);
+  const [hasTokenAccount, setHasTokenAccount] = useState<boolean | null>(null);
+  const [isBalanceLoading, setIsBalanceLoading] = useState<boolean>(false);
+  const [walletLoadError, setWalletLoadError] = useState<string | null>(null);
+
+  const circleAddressRef = useRef<string | null>(circleAddress || null);
+  useEffect(() => {
+    circleAddressRef.current = circleAddress || null;
+  }, [circleAddress]);
+
 
   // Per-(wallet, circle, action) in-flight lock to guarantee exactly-once execution (Requirement 5)
   const actionLockRef = useRef<Record<string, boolean>>({});
@@ -165,6 +180,16 @@ export const CircleView: FC<CircleViewProps> = ({
   // Requirement 2: 3 throwaway keypairs with Keypair.generate(), kept in memory only!
   // Never write them to localStorage, sessionStorage, files, or console; never offer export; never log.
   const [demoKeypairs, setDemoKeypairs] = useState<{ [slot: number]: Keypair } | null>(null);
+
+  const demoModeRef = useRef<boolean>(demoMode);
+  useEffect(() => {
+    demoModeRef.current = demoMode;
+  }, [demoMode]);
+
+  const demoKeypairsRef = useRef(demoKeypairs);
+  useEffect(() => {
+    demoKeypairsRef.current = demoKeypairs;
+  }, [demoKeypairs]);
   const [demoBalances, setDemoBalances] = useState<{ [slot: number]: { sol: number; token: number } }>({});
   const [showFundPanel, setShowFundPanel] = useState<boolean>(false);
   const [showAutopilot, setShowAutopilot] = useState<boolean>(false);
@@ -211,6 +236,11 @@ export const CircleView: FC<CircleViewProps> = ({
     }
     setDemoBalances(nextBals);
   }, [connection, demoKeypairs, circle]);
+
+  const fetchDemoBalancesRef = useRef(fetchDemoBalances);
+  useEffect(() => {
+    fetchDemoBalancesRef.current = fetchDemoBalances;
+  }, [fetchDemoBalances]);
 
   useEffect(() => {
     if (demoMode && demoKeypairs && circle) {
@@ -726,7 +756,26 @@ export const CircleView: FC<CircleViewProps> = ({
         const memberPromises = validMemberWallets.map(async (walletPk) => {
           const [memberPda] = getMemberPda(pubkey, walletPk);
           try {
-            const memberAccount = await program.account.member.fetch(memberPda);
+            let memberAccount: any = null;
+            try {
+              memberAccount = await program.account.member.fetchNullable(memberPda);
+            } catch (fetchErr: any) {
+              const msg = String(fetchErr?.message || fetchErr || '').toLowerCase();
+              if (
+                msg.includes('account does not exist') ||
+                msg.includes('could not find account') ||
+                msg.includes('accountnotfound')
+              ) {
+                memberAccount = null;
+              } else {
+                try {
+                  memberAccount = await program.account.member.fetch(memberPda);
+                } catch {
+                  memberAccount = null;
+                }
+              }
+            }
+            if (!memberAccount) return null;
             const memData: RealMemberData = {
               slot: memberAccount.slot as number,
               wallet: walletPk,
@@ -822,63 +871,189 @@ export const CircleView: FC<CircleViewProps> = ({
     [connection]
   );
 
-  // Requirement 2: Single resetForWallet handler treating a switch as one atomic event
+  // Requirement 1, 2, 3 & 4: Atomic resetForWallet with diagnostic step indicator & 10s timeout
   const resetForWallet = useCallback(
     async (newPk: PublicKey | null) => {
       const reqId = ++walletRequestIdRef.current;
       const pkStr = newPk ? newPk.toBase58() : 'none';
-      console.log(`[WalletSwitch ${new Date().toISOString()}] resetForWallet starting for: ${pkStr} (reqId: ${reqId})`);
+      console.log(`[WalletSwitch ${new Date().toISOString()}] (reqId: ${reqId}) Start resetForWallet for ${pkStr}`);
 
       // 1. Cancel/abort in-flight lookups or transactions for previous wallet
       if (activeAbortControllerRef.current) {
         activeAbortControllerRef.current.abort();
       }
-      activeAbortControllerRef.current = new AbortController();
+      const abortCtrl = new AbortController();
+      activeAbortControllerRef.current = abortCtrl;
 
       // 2. Clear pending flags, error banners, and success messages
       setTxPending(false);
       setTxPendingMsg(null);
       setTxSuccess(null);
       setTxError(null);
+      setWalletLoadError(null);
       clearWalletError();
       actionLockRef.current = {};
 
-      // 3. Mark wallet data loading while reloading fresh on-chain data
+      if (!newPk) {
+        setUserTokenBalance(null);
+        setHasTokenAccount(null);
+        setIsBalanceLoading(false);
+        setIsWalletDataLoading(false);
+        setWalletLoadingStep(null);
+        return;
+      }
+
       setIsWalletDataLoading(true);
+      setIsBalanceLoading(true);
+
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        const timer = setTimeout(() => reject(new Error('TIMEOUT_10S')), 10000);
+        abortCtrl.signal.addEventListener('abort', () => clearTimeout(timer));
+      });
+
+      const executeLoadSteps = async () => {
+        // Step 1: fetching circle (Requirement 1)
+        const step1Msg = 'fetching circle';
+        setWalletLoadingStep(step1Msg);
+        console.log(`[WalletLoader ${new Date().toISOString()}] (reqId: ${reqId}) Step: ${step1Msg}`);
+
+        const targetAddr = circleAddressRef.current;
+        let circleData = circle;
+        if (targetAddr) {
+          circleData = await loadCircleData(targetAddr, true, reqId);
+        }
+        if (reqId !== walletRequestIdRef.current) return;
+
+        if (!circleData) {
+          console.warn(`[WalletLoader ${new Date().toISOString()}] (reqId: ${reqId}) Circle data unavailable`);
+          return;
+        }
+
+        // Step 2: fetching member (Requirement 1 & 2)
+        const step2Msg = 'fetching member';
+        setWalletLoadingStep(step2Msg);
+        console.log(`[WalletLoader ${new Date().toISOString()}] (reqId: ${reqId}) Step: ${step2Msg} for ${pkStr}`);
+
+        const program = getSolthriftProgram(connection, null);
+        const [memberPda] = getMemberPda(circleData.address, newPk);
+        let onChainMemberFound = false;
+
+        if (circleData.loadedMembers.some((m) => m.wallet.equals(newPk))) {
+          onChainMemberFound = true;
+        } else {
+          try {
+            const memAccount = await program.account.member.fetchNullable(memberPda);
+            if (memAccount) {
+              onChainMemberFound = true;
+            }
+          } catch (err: any) {
+            // Requirement 2: Catch "Account does not exist", "could not find account" and treat as null
+            const errMsg = String(err?.message || err || '').toLowerCase();
+            if (
+              errMsg.includes('account does not exist') ||
+              errMsg.includes('could not find account') ||
+              errMsg.includes('accountnotfound')
+            ) {
+              onChainMemberFound = false;
+            } else {
+              console.warn(`[WalletLoader ${new Date().toISOString()}] (reqId: ${reqId}) Member check note:`, errMsg);
+              onChainMemberFound = false;
+            }
+          }
+        }
+        if (reqId !== walletRequestIdRef.current) return;
+
+        console.log(
+          `[WalletLoader ${new Date().toISOString()}] (reqId: ${reqId}) Member resolved: ${
+            onChainMemberFound ? 'Is a member' : 'Not a member'
+          }`
+        );
+
+        // Requirement 6: As soon as circle has loaded and the wallet is known to be a non-member,
+        // clear the wallet loading flag so the Join option appears immediately!
+        setIsWalletDataLoading(false);
+
+        // Step 3: fetching token account (Requirement 1 & 2)
+        const step3Msg = 'fetching token account';
+        setWalletLoadingStep(step3Msg);
+        console.log(`[WalletLoader ${new Date().toISOString()}] (reqId: ${reqId}) Step: ${step3Msg}`);
+
+        const ata = getAssociatedTokenAddressSync(
+          circleData.tokenMint,
+          newPk,
+          false,
+          TOKEN_PROGRAM_ID,
+          ASSOCIATED_TOKEN_PROGRAM_ID
+        );
+        let ataExists = false;
+        try {
+          const ataInfo = await connection.getAccountInfo(ata);
+          ataExists = ataInfo !== null;
+        } catch {
+          ataExists = false;
+        }
+        if (reqId !== walletRequestIdRef.current) return;
+        setHasTokenAccount(ataExists);
+
+        // Step 4: fetching balance (Requirement 1 & 2)
+        const step4Msg = 'fetching balance';
+        setWalletLoadingStep(step4Msg);
+        console.log(`[WalletLoader ${new Date().toISOString()}] (reqId: ${reqId}) Step: ${step4Msg}`);
+
+        let balance = 0;
+        if (!ataExists) {
+          balance = 0;
+          console.log(`[WalletLoader ${new Date().toISOString()}] (reqId: ${reqId}) ATA does not exist -> balance 0 (no USDC account yet)`);
+        } else {
+          try {
+            const balResp = await connection.getTokenAccountBalance(ata, 'confirmed');
+            balance = balResp.value.uiAmount ?? 0;
+          } catch (err: any) {
+            console.warn(`[WalletLoader ${new Date().toISOString()}] (reqId: ${reqId}) Balance lookup note:`, err);
+            balance = 0;
+          }
+        }
+        if (reqId !== walletRequestIdRef.current) return;
+        setUserTokenBalance(balance);
+        setIsBalanceLoading(false);
+        setWalletLoadingStep(null);
+        console.log(`[WalletLoader ${new Date().toISOString()}] (reqId: ${reqId}) Finished all steps. Balance: ${balance} USDC`);
+
+        if (demoModeRef.current && demoKeypairsRef.current) {
+          await fetchDemoBalancesRef.current();
+        }
+      };
 
       try {
-        if (circleAddress) {
-          await loadCircleData(circleAddress, true, reqId);
+        await Promise.race([executeLoadSteps(), timeoutPromise]);
+      } catch (err: any) {
+        if (reqId === walletRequestIdRef.current) {
+          console.error(`[WalletLoader ${new Date().toISOString()}] (reqId: ${reqId}) Loader error:`, err);
+          if (err?.message === 'TIMEOUT_10S') {
+            setWalletLoadError('Could not load this wallet.');
+          }
         }
-        if (demoMode && demoKeypairs) {
-          await fetchDemoBalances();
-        }
-      } catch (err) {
-        console.warn(`[WalletSwitch] Data reload warning for reqId ${reqId}:`, err);
       } finally {
+        // Requirement 3: ALWAYS END LOADING in finally
         if (reqId === walletRequestIdRef.current) {
           setIsWalletDataLoading(false);
-          console.log(`[WalletSwitch ${new Date().toISOString()}] resetForWallet completed for: ${pkStr}`);
+          setIsBalanceLoading(false);
+          setWalletLoadingStep(null);
         }
       }
     },
-    [circleAddress, loadCircleData, clearWalletError, demoMode, demoKeypairs, fetchDemoBalances]
+    [connection, loadCircleData, clearWalletError]
   );
 
-  // Requirement 1 & 2: Debounced wallet switch effect (300ms)
+  // Requirement 5: The debounce timer must be cleared and re-armed ONLY when publicKey changes.
   useEffect(() => {
     const pkStr = publicKey ? publicKey.toBase58() : 'disconnected';
-    console.log(
-      `[WalletEvent ${new Date().toISOString()}] state change: publicKey=${pkStr}, connected=${connected}, connecting=${connecting}`
-    );
-
-    setIsWalletDataLoading(true);
-    setTxError(null);
-    clearWalletError();
+    console.log(`[WalletEvent ${new Date().toISOString()}] publicKey changed: ${pkStr}`);
 
     if (walletDebounceTimerRef.current) {
       clearTimeout(walletDebounceTimerRef.current);
     }
+    setWalletLoadError(null);
 
     walletDebounceTimerRef.current = setTimeout(() => {
       resetForWallet(publicKey);
@@ -889,7 +1064,12 @@ export const CircleView: FC<CircleViewProps> = ({
         clearTimeout(walletDebounceTimerRef.current);
       }
     };
-  }, [publicKey, connected, connecting, resetForWallet, clearWalletError]);
+  }, [publicKey, resetForWallet]);
+
+  const handleRetryWalletLoad = useCallback(() => {
+    setWalletLoadError(null);
+    resetForWallet(publicKey);
+  }, [publicKey, resetForWallet]);
 
   // Requirement 1 & 6: Listen to adapter connect, disconnect, and extension accountChanged events
   useEffect(() => {
@@ -913,15 +1093,6 @@ export const CircleView: FC<CircleViewProps> = ({
         ? newPk
         : adapter.publicKey?.toBase58();
       console.log(`[WalletEvent ${new Date().toISOString()}] adapter.accountChange:`, pkStr);
-      setIsWalletDataLoading(true);
-      setTxError(null);
-      clearWalletError();
-      if (walletDebounceTimerRef.current) {
-        clearTimeout(walletDebounceTimerRef.current);
-      }
-      walletDebounceTimerRef.current = setTimeout(() => {
-        resetForWallet(adapter.publicKey);
-      }, 300);
     };
 
     adapter.on('connect', onConnect);
@@ -3697,18 +3868,85 @@ export const CircleView: FC<CircleViewProps> = ({
                     </div>
                   ) : (
                     <div>
-                      {isWalletBusy && (
+                      {/* Diagnostic one-line step indicator (Requirement 1) */}
+                      {walletLoadingStep && isWalletDataLoading && (
                         <div className="wallet-loading-indicator" style={{ marginBottom: '0.65rem' }}>
-                          <Loader2 size={13} className="spinner-icon" />
-                          <span>Loading this wallet...</span>
+                          <Loader2 size={12} className="spinner-icon" />
+                          <span>{walletLoadingStep}...</span>
                         </div>
                       )}
+
+                      {/* 10-second timeout error state with Retry button (Requirement 3) */}
+                      {walletLoadError && (
+                        <div
+                          className="alert-box error-alert"
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '0.75rem',
+                            marginBottom: '0.65rem',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <AlertTriangle size={15} style={{ color: '#ef4444' }} />
+                            <span>{walletLoadError}</span>
+                          </div>
+                          <button
+                            type="button"
+                            className="btn-secondary"
+                            style={{ padding: '0.25rem 0.65rem', fontSize: '0.72rem', minHeight: 'auto', height: 'auto' }}
+                            onClick={handleRetryWalletLoad}
+                          >
+                            Retry
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Balance line: shows checking... while balance fetches (Requirement 6) */}
+                      <div
+                        className="wallet-balance-row"
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          fontSize: '0.82rem',
+                          marginBottom: '0.65rem',
+                          padding: '0.45rem 0.65rem',
+                          borderRadius: '8px',
+                          background: 'rgba(255, 255, 255, 0.03)',
+                          border: '1px solid var(--glass-border-subtle)',
+                          color: 'var(--text-muted)',
+                        }}
+                      >
+                        <span>Your wallet balance:</span>
+                        <span
+                          style={{
+                            fontWeight: 500,
+                            color: userTokenBalance !== null && userTokenBalance > 0 ? '#ffffff' : 'var(--text-muted)',
+                          }}
+                        >
+                          {isBalanceLoading ? (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                              <Loader2 size={12} className="spinner-icon" /> checking...
+                            </span>
+                          ) : hasTokenAccount === false ? (
+                            '0 USDC (no USDC account yet)'
+                          ) : userTokenBalance !== null ? (
+                            `${userTokenBalance} ${tokenSymbol}`
+                          ) : (
+                            '0 USDC'
+                          )}
+                        </span>
+                      </div>
+
+                      {/* Join button: rendered immediately as Join circle, disabled only while loading (Requirement 6) */}
                       <button
                         type="button"
                         id="join-circle-btn"
                         className="btn-primary"
                         style={{ width: '100%' }}
-                        disabled={txPending || isWalletBusy}
+                        disabled={txPending || isBalanceLoading || isWalletDataLoading}
                         onClick={handleJoinCircle}
                       >
                         {txPending ? (
@@ -3716,15 +3954,8 @@ export const CircleView: FC<CircleViewProps> = ({
                             <Loader2 size={16} className="spinner-icon" />
                             Joining circle...
                           </>
-                        ) : isWalletBusy ? (
-                          <>
-                            <Loader2 size={16} className="spinner-icon" />
-                            Loading this wallet...
-                          </>
                         ) : (
-                          <>
-                            Join circle
-                          </>
+                          'Join circle'
                         )}
                       </button>
                     </div>
