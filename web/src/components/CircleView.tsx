@@ -1,7 +1,8 @@
 import type { FC } from 'react';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
-import { PublicKey, TransactionInstruction, SystemProgram } from '@solana/web3.js';
+import { useWalletModal } from '@solana/wallet-adapter-react-ui';
+import { PublicKey, TransactionInstruction, SystemProgram, Keypair } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { BN } from '@coral-xyz/anchor';
 import {
@@ -25,6 +26,13 @@ import {
   History,
   ArrowRight,
   LogOut,
+  ChevronDown,
+  ChevronUp,
+  X,
+  Sparkles,
+  Play,
+  Pause,
+  Square,
 } from 'lucide-react';
 
 import type { RealCircleData, RealMemberData } from '../types';
@@ -39,9 +47,14 @@ import {
   getMemberPda,
   getOrCreateAtaInstruction,
   getMintDecimals,
+  getTokenBalance,
   getExplorerUrl,
   translateProgramError,
   executeProgramMethod,
+  isUserCancellation,
+  extractSolanaAddress,
+  createKeypairWallet,
+  fundDemoMembers,
 } from '../solthriftClient';
 import { isPlaceholderMint } from '../config';
 import { CircleRing } from './CircleRing';
@@ -61,7 +74,29 @@ export const CircleView: FC<CircleViewProps> = ({
 }) => {
   const { connection } = useConnection();
   const wallet = useWallet();
-  const { connected, publicKey } = wallet;
+  const { select, connected, publicKey } = wallet;
+  const { setVisible } = useWalletModal();
+
+  // Selected seat for cockpit interaction & seamless wallet switching
+  const [selectedSeat, setSelectedSeat] = useState<number>(1);
+
+  // Seamless wallet switch prompt without requiring manual disconnect
+  const handlePromptSwitchWallet = useCallback(async (slotNum: number) => {
+    setSelectedSeat(slotNum);
+    try {
+      const anyWin = window as any;
+      if (anyWin.solflare && typeof anyWin.solflare.connect === 'function') {
+        try {
+          await anyWin.solflare.connect({ onlyIfTrusted: false });
+          return;
+        } catch {}
+      }
+    } catch {}
+    try {
+      select(null as any);
+    } catch {}
+    setVisible(true);
+  }, [select, setVisible]);
 
   // Search input & loaded circle state
   const [inputAddress, setInputAddress] = useState<string>(circleAddress || '');
@@ -73,6 +108,8 @@ export const CircleView: FC<CircleViewProps> = ({
 
   // Address copy feedback
   const [copiedCircle, setCopiedCircle] = useState<boolean>(false);
+  const [copiedCircleLink, setCopiedCircleLink] = useState<boolean>(false);
+  const [cockpitExpanded, setCockpitExpanded] = useState<boolean>(true);
   const [copiedMemberIdx, setCopiedMemberIdx] = useState<number | null>(null);
 
   // Transaction execution state
@@ -80,6 +117,477 @@ export const CircleView: FC<CircleViewProps> = ({
   const [txPendingMsg, setTxPendingMsg] = useState<string | null>(null);
   const [txSuccess, setTxSuccess] = useState<{ signature: string; message: string } | null>(null);
   const [txError, setTxError] = useState<{ message: string; details?: string } | null>(null);
+
+  // Auto-dismiss transaction error after 5 seconds
+  useEffect(() => {
+    if (txError) {
+      const timer = setTimeout(() => {
+        setTxError(null);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [txError]);
+
+  // Auto-dismiss transaction success banner after 7 seconds
+  useEffect(() => {
+    if (txSuccess) {
+      const timer = setTimeout(() => {
+        setTxSuccess(null);
+      }, 7000);
+      return () => clearTimeout(timer);
+    }
+  }, [txSuccess]);
+
+  // Clear any transaction error when user switches wallet account
+  useEffect(() => {
+    setTxError(null);
+  }, [publicKey]);
+
+  // Auto-Payout and Auto-Remove (defaulted to false so no unsolicited background popups trigger)
+  const [autoPayoutEnabled, setAutoPayoutEnabled] = useState<boolean>(false);
+  const autoPayoutTriggeredRef = useRef<boolean>(false);
+
+  const [autoRemoveEnabled, setAutoRemoveEnabled] = useState<boolean>(false);
+  const autoRemoveTriggeredRef = useRef<boolean>(false);
+
+  // ⚡ Devnet Demo Mode State (Requirement 1: Available ONLY when RPC endpoint is devnet)
+  const isDevnet = connection.rpcEndpoint.toLowerCase().includes('devnet');
+  const [demoMode, setDemoMode] = useState<boolean>(false);
+
+  // Requirement 2: 3 throwaway keypairs with Keypair.generate(), kept in memory only!
+  // Never write them to localStorage, sessionStorage, files, or console; never offer export; never log.
+  const [demoKeypairs, setDemoKeypairs] = useState<{ [slot: number]: Keypair } | null>(null);
+  const [demoBalances, setDemoBalances] = useState<{ [slot: number]: { sol: number; token: number } }>({});
+  const [showFundPanel, setShowFundPanel] = useState<boolean>(false);
+  const [showAutopilot, setShowAutopilot] = useState<boolean>(false);
+
+  // Requirement 3: Editable funding amounts for each demo seat (defaults: 0.05 SOL each; seat 2: 15, seat 3: 15, seat 4: 10)
+  const [fundAmounts, setFundAmounts] = useState<{ [slot: number]: { sol: number; token: number } }>({
+    2: { sol: 0.05, token: 15 },
+    3: { sol: 0.05, token: 15 },
+    4: { sol: 0.05, token: 10 },
+  });
+
+  // Toggle Demo Mode
+  const toggleDemoMode = useCallback(() => {
+    setDemoMode((prev) => {
+      const next = !prev;
+      if (next) {
+        if (!demoKeypairs) {
+          const k2 = Keypair.generate();
+          const k3 = Keypair.generate();
+          const k4 = Keypair.generate();
+          setDemoKeypairs({ 2: k2, 3: k3, 4: k4 });
+        }
+      }
+      return next;
+    });
+  }, [demoKeypairs]);
+
+  // Fetch demo balances helper
+  const fetchDemoBalances = useCallback(async () => {
+    if (!demoKeypairs || !circle) return;
+    const nextBals: { [slot: number]: { sol: number; token: number } } = {};
+    for (const slot of [2, 3, 4]) {
+      const kp = demoKeypairs[slot];
+      if (!kp) continue;
+      try {
+        const lamports = await connection.getBalance(kp.publicKey, 'confirmed');
+        const sol = lamports / 1e9;
+        let token = 0;
+        try {
+          token = await getTokenBalance(connection, circle.tokenMint, kp.publicKey);
+        } catch {}
+        nextBals[slot] = { sol, token };
+      } catch {}
+    }
+    setDemoBalances(nextBals);
+  }, [connection, demoKeypairs, circle]);
+
+  useEffect(() => {
+    if (demoMode && demoKeypairs && circle) {
+      fetchDemoBalances();
+    }
+  }, [demoMode, demoKeypairs, circle, fetchDemoBalances]);
+
+  // Requirement 3: Fund demo members handler (1 transaction signed by connected wallet)
+  const handleFundDemoMembers = async () => {
+    if (!connected || !publicKey) {
+      setTxError({ message: 'Connect your wallet to fund demo members.' });
+      return;
+    }
+    if (!circle) return;
+    if (!demoKeypairs) {
+      setTxError({ message: 'Demo keypairs not initialized. Enable Demo Mode first.' });
+      return;
+    }
+
+    setTxPending(true);
+    setTxPendingMsg('Funding demo members with SOL and USDC in one transaction...');
+    setTxError(null);
+    setTxSuccess(null);
+
+    try {
+      const sigs = await fundDemoMembers({
+        connection,
+        payerWallet: wallet as any,
+        tokenMint: circle.tokenMint,
+        tokenDecimals,
+        recipients: [
+          {
+            publicKey: demoKeypairs[2].publicKey,
+            solAmount: fundAmounts[2]?.sol ?? 0.05,
+            tokenAmount: fundAmounts[2]?.token ?? 15,
+          },
+          {
+            publicKey: demoKeypairs[3].publicKey,
+            solAmount: fundAmounts[3]?.sol ?? 0.05,
+            tokenAmount: fundAmounts[3]?.token ?? 15,
+          },
+          {
+            publicKey: demoKeypairs[4].publicKey,
+            solAmount: fundAmounts[4]?.sol ?? 0.05,
+            tokenAmount: fundAmounts[4]?.token ?? 10,
+          },
+        ],
+        onStatusChange: (status) => setTxPendingMsg(status),
+      });
+
+      const firstSig = sigs[0] || '';
+      setTxSuccess({
+        signature: firstSig,
+        message: 'Funded Demo Seats 2, 3, and 4 successfully!',
+      });
+
+      await fetchDemoBalances();
+    } catch (err: any) {
+      console.error('fundDemoMembers failed:', err);
+      if (isUserCancellation(err)) return;
+      const translated = translateProgramError(err);
+      setTxError({ message: translated.message, details: translated.details });
+    } finally {
+      setTxPending(false);
+      setTxPendingMsg(null);
+    }
+  };
+
+  // Requirement 6: "Run the demo for me" Autopilot Engine
+  interface AutopilotStepItem {
+    id: string;
+    title: string;
+    status: 'pending' | 'running' | 'waiting_approval' | 'done' | 'failed' | 'skipped';
+    signature?: string;
+    detail?: string;
+  }
+
+  const [autopilotRunning, setAutopilotRunning] = useState<boolean>(false);
+  const [autopilotWaitingApproval, setAutopilotWaitingApproval] = useState<boolean>(false);
+  const [autopilotApprovalPrompt, setAutopilotApprovalPrompt] = useState<string | null>(null);
+  const [autopilotCountdown, setAutopilotCountdown] = useState<number | null>(null);
+  const [autopilotError, setAutopilotError] = useState<string | null>(null);
+  const autopilotCancelRef = useRef<boolean>(false);
+
+  const initialAutopilotSteps: AutopilotStepItem[] = [
+    { id: 'fund_check', title: 'Verify Demo Seats 2-4 Funding', status: 'pending' },
+    { id: 'join_seat_2', title: 'Demo Seat 2 Joins Circle', status: 'pending' },
+    { id: 'join_seat_3', title: 'Demo Seat 3 Joins Circle', status: 'pending' },
+    { id: 'join_seat_4', title: 'Demo Seat 4 Joins Circle (Circle Becomes Active)', status: 'pending' },
+    { id: 'turn1_seat1', title: 'Turn 1: Seat 1 Contributes (Requires Real Wallet Approval)', status: 'pending' },
+    { id: 'turn1_seat2', title: 'Turn 1: Seat 2 Contributes (Demo Key)', status: 'pending' },
+    { id: 'turn1_seat3', title: 'Turn 1: Seat 3 Contributes (Demo Key)', status: 'pending' },
+    { id: 'turn1_seat4', title: 'Turn 1: Seat 4 Contributes (Demo Key)', status: 'pending' },
+    { id: 'turn1_payout', title: 'Turn 1: Payout Distributed', status: 'pending' },
+    { id: 'turn2_seat1', title: 'Turn 2: Seat 1 Contributes (Requires Real Wallet Approval)', status: 'pending' },
+    { id: 'turn2_seat2', title: 'Turn 2: Seat 2 Contributes (Demo Key)', status: 'pending' },
+    { id: 'turn2_seat3', title: 'Turn 2: Seat 3 Contributes (Demo Key)', status: 'pending' },
+    { id: 'turn2_seat4', title: 'Turn 2: Seat 4 Misses Payment (Defaulter Scenario)', status: 'pending' },
+    { id: 'turn2_wait', title: 'Turn 2: Wait for Grace Period to Expire (Live Countdown)', status: 'pending' },
+    { id: 'turn2_remove', title: 'Turn 2: Remove Late Member (Seat 4 Evicted)', status: 'pending' },
+    { id: 'turn2_payout', title: 'Turn 2: Payout Distributed', status: 'pending' },
+  ];
+
+  const [autopilotSteps, setAutopilotSteps] = useState<AutopilotStepItem[]>(initialAutopilotSteps);
+
+  const updateAutopilotStep = useCallback((
+    stepId: string,
+    status: 'pending' | 'running' | 'waiting_approval' | 'done' | 'failed' | 'skipped',
+    sig?: string,
+    detail?: string
+  ) => {
+    setAutopilotSteps((prev) =>
+      prev.map((s) => (s.id === stepId ? { ...s, status, signature: sig || s.signature, detail: detail || s.detail } : s))
+    );
+  }, []);
+
+  const stopAutopilot = useCallback(() => {
+    autopilotCancelRef.current = true;
+    setAutopilotRunning(false);
+    setAutopilotWaitingApproval(false);
+    setAutopilotApprovalPrompt(null);
+    setAutopilotCountdown(null);
+  }, []);
+
+  const resetAutopilot = useCallback(() => {
+    stopAutopilot();
+    setAutopilotSteps(initialAutopilotSteps);
+    setAutopilotError(null);
+  }, [stopAutopilot]);
+
+  const continueAutopilotAfterTurn2Seat1 = async () => {
+    if (!circle || !demoKeypairs || autopilotCancelRef.current) return;
+    setAutopilotWaitingApproval(false);
+    setAutopilotApprovalPrompt(null);
+
+    try {
+      // Step 11: Seat 2 contributes Turn 2
+      const m2 = circle.loadedMembers.find((m) => m.slot === 2);
+      if (m2 && m2.lastContributedPeriod < 2) {
+        updateAutopilotStep('turn2_seat2', 'running');
+        const s2 = await handleContribute(m2, createKeypairWallet(demoKeypairs[2]));
+        updateAutopilotStep('turn2_seat2', 'done', s2);
+      } else {
+        updateAutopilotStep('turn2_seat2', 'done');
+      }
+
+      // Step 12: Seat 3 contributes Turn 2
+      if (autopilotCancelRef.current) return;
+      const m3 = circle.loadedMembers.find((m) => m.slot === 3);
+      if (m3 && m3.lastContributedPeriod < 2) {
+        updateAutopilotStep('turn2_seat3', 'running');
+        const s3 = await handleContribute(m3, createKeypairWallet(demoKeypairs[3]));
+        updateAutopilotStep('turn2_seat3', 'done', s3);
+      } else {
+        updateAutopilotStep('turn2_seat3', 'done');
+      }
+
+      // Step 13: Seat 4 does not contribute (defaulter scenario)
+      if (autopilotCancelRef.current) return;
+      updateAutopilotStep('turn2_seat4', 'skipped', undefined, 'Seat 4 deliberately misses payment');
+
+      // Step 14: Wait for deadline with live countdown
+      if (autopilotCancelRef.current) return;
+      updateAutopilotStep('turn2_wait', 'running');
+      const freshCircle = (await loadCircleData(circle.address.toBase58(), true)) || circle;
+      const deadline = Number(freshCircle.periodStartTime) + Number(freshCircle.periodDuration) + Number(freshCircle.graceDuration);
+      while (!autopilotCancelRef.current) {
+        const cur = Math.floor(Date.now() / 1000);
+        const rem = deadline - cur;
+        setAutopilotCountdown(Math.max(rem, 0));
+        if (cur > deadline + 2) break;
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+      setAutopilotCountdown(null);
+      if (autopilotCancelRef.current) return;
+      updateAutopilotStep('turn2_wait', 'done', undefined, 'Grace period expired');
+
+      // Reload fresh circle
+      const freshAfterWait = (await loadCircleData(circle.address.toBase58(), true)) || circle;
+
+      // Step 15: Remove late member
+      if (autopilotCancelRef.current) return;
+      updateAutopilotStep('turn2_remove', 'running');
+      const m4 = freshAfterWait.loadedMembers.find((m) => m.slot === 4);
+      const remSig = await handleRemoveDefaulter(m4);
+      updateAutopilotStep('turn2_remove', 'done', remSig);
+
+      await loadCircleData(circle.address.toBase58(), true);
+
+      // Step 16: Turn 2 Payout
+      if (autopilotCancelRef.current) return;
+      updateAutopilotStep('turn2_payout', 'running');
+      const payoutSig2 = await handlePayout();
+      updateAutopilotStep('turn2_payout', 'done', payoutSig2);
+
+      setAutopilotRunning(false);
+      setTxSuccess({
+        signature: payoutSig2 || '',
+        message: '🎉 Demo walkthrough autopilot finished successfully!',
+      });
+    } catch (err: any) {
+      console.error('Autopilot Turn 2 error:', err);
+      const translated = translateProgramError(err);
+      setAutopilotError(`Autopilot stopped at Turn 2: ${translated.message}`);
+      setAutopilotRunning(false);
+    }
+  };
+
+  const continueAutopilotAfterTurn1Seat1 = async () => {
+    if (!circle || !demoKeypairs || autopilotCancelRef.current) return;
+    setAutopilotWaitingApproval(false);
+    setAutopilotApprovalPrompt(null);
+
+    try {
+      // Step 6: Seat 2 contributes Turn 1
+      const m2 = circle.loadedMembers.find((m) => m.slot === 2);
+      if (m2 && m2.lastContributedPeriod < 1) {
+        updateAutopilotStep('turn1_seat2', 'running');
+        const s2 = await handleContribute(m2, createKeypairWallet(demoKeypairs[2]));
+        updateAutopilotStep('turn1_seat2', 'done', s2);
+      } else {
+        updateAutopilotStep('turn1_seat2', 'done');
+      }
+
+      // Step 7: Seat 3 contributes Turn 1
+      if (autopilotCancelRef.current) return;
+      const m3 = circle.loadedMembers.find((m) => m.slot === 3);
+      if (m3 && m3.lastContributedPeriod < 1) {
+        updateAutopilotStep('turn1_seat3', 'running');
+        const s3 = await handleContribute(m3, createKeypairWallet(demoKeypairs[3]));
+        updateAutopilotStep('turn1_seat3', 'done', s3);
+      } else {
+        updateAutopilotStep('turn1_seat3', 'done');
+      }
+
+      // Step 8: Seat 4 contributes Turn 1
+      if (autopilotCancelRef.current) return;
+      const m4 = circle.loadedMembers.find((m) => m.slot === 4);
+      if (m4 && m4.lastContributedPeriod < 1) {
+        updateAutopilotStep('turn1_seat4', 'running');
+        const s4 = await handleContribute(m4, createKeypairWallet(demoKeypairs[4]));
+        updateAutopilotStep('turn1_seat4', 'done', s4);
+      } else {
+        updateAutopilotStep('turn1_seat4', 'done');
+      }
+
+      // Step 9: Turn 1 Payout
+      if (autopilotCancelRef.current) return;
+      updateAutopilotStep('turn1_payout', 'running');
+      const payoutSig1 = await handlePayout();
+      updateAutopilotStep('turn1_payout', 'done', payoutSig1);
+
+      await loadCircleData(circle.address.toBase58(), true);
+
+      // Step 10: Turn 2 Seat 1 contributes (Requires Real Wallet)
+      if (autopilotCancelRef.current) return;
+      const mem1_t2 = circle.loadedMembers.find((m) => m.slot === 1);
+      if (mem1_t2 && mem1_t2.lastContributedPeriod < 2) {
+        updateAutopilotStep('turn2_seat1', 'waiting_approval');
+        setAutopilotWaitingApproval(true);
+        setAutopilotApprovalPrompt('Turn 2: Please approve Seat 1 contribution in your wallet.');
+        return;
+      } else {
+        updateAutopilotStep('turn2_seat1', 'done', undefined, 'Seat 1 already paid for Turn 2');
+      }
+
+      await continueAutopilotAfterTurn2Seat1();
+    } catch (err: any) {
+      console.error('Autopilot Turn 1 error:', err);
+      const translated = translateProgramError(err);
+      setAutopilotError(`Autopilot stopped at Turn 1: ${translated.message}`);
+      setAutopilotRunning(false);
+    }
+  };
+
+  const runAutopilot = async () => {
+    if (!circle) return;
+    if (!demoKeypairs) {
+      setTxError({ message: 'Enable Demo Mode first to initialize throwaway keys.' });
+      return;
+    }
+    autopilotCancelRef.current = false;
+    setAutopilotRunning(true);
+    setAutopilotError(null);
+
+    try {
+      // Step 1: Verify funding
+      updateAutopilotStep('fund_check', 'running');
+      await fetchDemoBalances();
+      const b2 = demoBalances[2]?.sol ?? 0;
+      const b3 = demoBalances[3]?.sol ?? 0;
+      const b4 = demoBalances[4]?.sol ?? 0;
+      if (b2 < 0.01 || b3 < 0.01 || b4 < 0.01) {
+        updateAutopilotStep('fund_check', 'failed', undefined, 'Demo seats lack SOL. Click "Fund demo members" above.');
+        setAutopilotError('Demo seats 2 to 4 do not have SOL. Please click "Fund demo members" above first.');
+        setAutopilotRunning(false);
+        return;
+      }
+      updateAutopilotStep('fund_check', 'done');
+
+      // Step 2: Seat 2 joins
+      if (autopilotCancelRef.current) return;
+      const mem2 = circle.loadedMembers.find((m) => m.slot === 2);
+      if (!mem2) {
+        updateAutopilotStep('join_seat_2', 'running');
+        const sig2 = await handleJoinCircle(createKeypairWallet(demoKeypairs[2]));
+        updateAutopilotStep('join_seat_2', 'done', sig2);
+      } else {
+        updateAutopilotStep('join_seat_2', 'done', undefined, 'Already joined');
+      }
+
+      // Step 3: Seat 3 joins
+      if (autopilotCancelRef.current) return;
+      const mem3 = circle.loadedMembers.find((m) => m.slot === 3);
+      if (!mem3) {
+        updateAutopilotStep('join_seat_3', 'running');
+        const sig3 = await handleJoinCircle(createKeypairWallet(demoKeypairs[3]));
+        updateAutopilotStep('join_seat_3', 'done', sig3);
+      } else {
+        updateAutopilotStep('join_seat_3', 'done', undefined, 'Already joined');
+      }
+
+      // Step 4: Seat 4 joins
+      if (autopilotCancelRef.current) return;
+      const mem4 = circle.loadedMembers.find((m) => m.slot === 4);
+      if (!mem4) {
+        updateAutopilotStep('join_seat_4', 'running');
+        const sig4 = await handleJoinCircle(createKeypairWallet(demoKeypairs[4]));
+        updateAutopilotStep('join_seat_4', 'done', sig4);
+      } else {
+        updateAutopilotStep('join_seat_4', 'done', undefined, 'Already joined');
+      }
+
+      await loadCircleData(circle.address.toBase58(), true);
+
+      // Step 5: Turn 1 Seat 1 contributes (real wallet)
+      if (autopilotCancelRef.current) return;
+      const m1 = circle.loadedMembers.find((m) => m.slot === 1);
+      if (m1 && m1.lastContributedPeriod < 1) {
+        updateAutopilotStep('turn1_seat1', 'waiting_approval');
+        setAutopilotWaitingApproval(true);
+        setAutopilotApprovalPrompt('Turn 1: Please approve Seat 1 contribution in your wallet.');
+        return;
+      } else {
+        updateAutopilotStep('turn1_seat1', 'done', undefined, 'Seat 1 already paid');
+      }
+
+      await continueAutopilotAfterTurn1Seat1();
+    } catch (err: any) {
+      console.error('Autopilot error:', err);
+      const translated = translateProgramError(err);
+      setAutopilotError(`Autopilot stopped: ${translated.message}`);
+      setAutopilotRunning(false);
+    }
+  };
+
+  const approveCurrentAutopilotStep = async () => {
+    if (!circle) return;
+    const m1 = circle.loadedMembers.find((m) => m.slot === 1);
+    if (!m1) return;
+    try {
+      const sig = await handleContribute(m1);
+      if (circle.currentPeriod === 1) {
+        updateAutopilotStep('turn1_seat1', 'done', sig);
+        await continueAutopilotAfterTurn1Seat1();
+      } else {
+        updateAutopilotStep('turn2_seat1', 'done', sig);
+        await continueAutopilotAfterTurn2Seat1();
+      }
+    } catch (err: any) {
+      const translated = translateProgramError(err);
+      setAutopilotError(`Approval failed: ${translated.message}`);
+      setAutopilotWaitingApproval(false);
+    }
+  };
+
+  // ⚡ Multi-Wallet Session Tracker for Demo (tracks and displays all 4 wallets simultaneously)
+  const [knownWallets, setKnownWallets] = useState<Record<number, string>>(() => {
+    try {
+      const saved = localStorage.getItem(`solthrift_demo_wallets_${circleAddress || ''}`);
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
 
   // Live timer ticking every second for real-time countdowns without reloading
   const [nowSec, setNowSec] = useState<number>(Math.floor(Date.now() / 1000));
@@ -90,13 +598,75 @@ export const CircleView: FC<CircleViewProps> = ({
     return () => clearInterval(timer);
   }, []);
 
+  // Auto-discover and remember each wallet as user switches in Solflare/Phantom
+  useEffect(() => {
+    if (!publicKey) return;
+    const currentPkStr = publicKey.toBase58();
+
+    setKnownWallets((prev) => {
+      // If already recorded for any slot, no need to reassign
+      const existing = Object.entries(prev).find(([_, addr]) => addr === currentPkStr);
+      if (existing) return prev;
+
+      // Check if this wallet is already an on-chain member
+      if (circle?.loadedMembers) {
+        const mem = circle.loadedMembers.find((m) => m.wallet.equals(publicKey));
+        if (mem) {
+          const updated = { ...prev, [mem.slot]: currentPkStr };
+          try {
+            localStorage.setItem(`solthrift_demo_wallets_${circle.address.toBase58()}`, JSON.stringify(updated));
+          } catch {}
+          return updated;
+        }
+      }
+
+      // Otherwise assign to the first empty slot (1 to membersTarget)
+      const maxSlots = circle?.membersTarget || 4;
+      for (let s = 1; s <= maxSlots; s++) {
+        if (!prev[s]) {
+          const updated = { ...prev, [s]: currentPkStr };
+          if (circle?.address) {
+            try {
+              localStorage.setItem(`solthrift_demo_wallets_${circle.address.toBase58()}`, JSON.stringify(updated));
+            } catch {}
+          }
+          return updated;
+        }
+      }
+      return prev;
+    });
+  }, [publicKey, circle]);
+
+  // Synchronize knownWallets with on-chain circle loaded members
+  useEffect(() => {
+    if (!circle?.loadedMembers || !circle?.address) return;
+    setKnownWallets((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      circle.loadedMembers.forEach((m) => {
+        const addr = m.wallet.toBase58();
+        if (next[m.slot] !== addr) {
+          next[m.slot] = addr;
+          changed = true;
+        }
+      });
+      if (changed) {
+        try {
+          localStorage.setItem(`solthrift_demo_wallets_${circle.address.toBase58()}`, JSON.stringify(next));
+        } catch {}
+        return next;
+      }
+      return prev;
+    });
+  }, [circle?.loadedMembers, circle?.address]);
+
   /**
    * Fetch real on-chain Circle and Member data from Devnet
    * @param silent If true, updates state silently without triggering full-screen loading skeleton
    */
   const loadCircleData = useCallback(
     async (addressToLoad: string, silent: boolean = false) => {
-      const trimmed = addressToLoad.trim();
+      const trimmed = extractSolanaAddress(addressToLoad);
       if (!trimmed) {
         setCircle(null);
         setFetchError(null);
@@ -107,8 +677,7 @@ export const CircleView: FC<CircleViewProps> = ({
       try {
         pubkey = new PublicKey(trimmed);
       } catch {
-        setFetchError(`The address "${trimmed}" is not a valid Solana address. Check the address and try again.`);
-        setCircle(null);
+        setFetchError(`The address "${trimmed}" is not a valid Solana address.`);
         return;
       }
 
@@ -202,18 +771,23 @@ export const CircleView: FC<CircleViewProps> = ({
         };
 
         setCircle(circleData);
+        return circleData;
       } catch (err: any) {
         console.error('Failed to load on-chain circle:', err);
         if (!silent) {
-          const errStr = String(err?.message || err);
-          if (errStr.includes('Account does not exist')) {
-            setFetchError('No circle at this address. Check the link or create a new circle.');
-          } else {
-            const translated = translateProgramError(err);
-            setFetchError(`Could not load circle: ${translated.message} Check your network connection.`);
-          }
-          setCircle(null);
+          setCircle((existing) => {
+            if (existing) return existing;
+            const errStr = String(err?.message || err);
+            if (errStr.includes('Account does not exist')) {
+              setFetchError('No circle found at this address. Check the address or create a new circle.');
+            } else {
+              const translated = translateProgramError(err);
+              setFetchError(`Could not load circle: ${translated.message}`);
+            }
+            return null;
+          });
         }
+        return null;
       } finally {
         if (!silent) {
           setLoading(false);
@@ -245,9 +819,11 @@ export const CircleView: FC<CircleViewProps> = ({
   // Handle Search Submission
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (inputAddress.trim()) {
-      onSelectCircle?.(inputAddress.trim());
-      loadCircleData(inputAddress.trim());
+    const cleanAddr = extractSolanaAddress(inputAddress);
+    if (cleanAddr) {
+      setInputAddress(cleanAddr);
+      onSelectCircle?.(cleanAddr);
+      loadCircleData(cleanAddr);
     }
   };
 
@@ -257,6 +833,16 @@ export const CircleView: FC<CircleViewProps> = ({
       navigator.clipboard.writeText(circle.address.toBase58());
       setCopiedCircle(true);
       setTimeout(() => setCopiedCircle(false), 2000);
+    }
+  };
+
+  // Handle copying direct shareable circle link
+  const handleCopyShareableLink = () => {
+    if (circle) {
+      const url = `${window.location.origin}/circle/${circle.address.toBase58()}`;
+      navigator.clipboard.writeText(url);
+      setCopiedCircleLink(true);
+      setTimeout(() => setCopiedCircleLink(false), 2000);
     }
   };
 
@@ -297,6 +883,10 @@ export const CircleView: FC<CircleViewProps> = ({
   const formattedContribution = circle
     ? formatTokenAmount(circle.contribution, tokenDecimals)
     : '0';
+  const formattedReserve = circle?.reserve
+    ? formatTokenAmount(circle.reserve, tokenDecimals)
+    : '0';
+  const hasReserve = Boolean(circle?.reserve && !new BN(circle.reserve.toString()).isZero());
 
   const owedPeriods = circle ? circle.membersTarget - nextSlot : 0;
 
@@ -374,9 +964,10 @@ export const CircleView: FC<CircleViewProps> = ({
       ? 'Round not started'
       : `Status: ${circle?.status || 'Unknown'}`;
 
+  const hasSignerAvailable = Boolean((connected && publicKey) || (demoMode && demoKeypairs));
+
   const canPayout = Boolean(
-    connected &&
-    publicKey &&
+    hasSignerAvailable &&
     isCircleActive &&
     circle &&
     circle.currentPeriod >= 1 &&
@@ -387,8 +978,8 @@ export const CircleView: FC<CircleViewProps> = ({
   );
 
   let payoutReason = '';
-  if (!connected) {
-    payoutReason = 'Connect your wallet to call payout.';
+  if (!hasSignerAvailable) {
+    payoutReason = 'Connect your wallet or enable demo mode to call payout.';
   } else if (isCircleOpen) {
     payoutReason = 'Circle is Open. Payouts start after round begins and seats fill.';
   } else if (!isCircleActive) {
@@ -416,16 +1007,15 @@ export const CircleView: FC<CircleViewProps> = ({
     : 'Remove late member';
 
   const canRemoveDefaulter = Boolean(
-    connected &&
-    publicKey &&
+    hasSignerAvailable &&
     isCircleActive &&
     targetLateMember !== null &&
     isGraceExpired
   );
 
   let removeDefaulterReason = '';
-  if (!connected) {
-    removeDefaulterReason = 'Connect your wallet to remove late members.';
+  if (!hasSignerAvailable) {
+    removeDefaulterReason = 'Connect your wallet or enable demo mode to remove late members.';
   } else if (isCircleOpen) {
     removeDefaulterReason = 'Circle is Open. Defaulter removal is only available during active turns.';
   } else if (!isCircleActive) {
@@ -587,17 +1177,15 @@ export const CircleView: FC<CircleViewProps> = ({
   /**
    * Section 5, Instruction 2: Join Circle
    */
-  const handleJoinCircle = async () => {
-    if (!connected || !publicKey) {
+  const handleJoinCircle = async (customSignerWallet?: any): Promise<string | undefined> => {
+    const activeSigner = customSignerWallet || (connected && publicKey ? wallet : null);
+    if (!activeSigner || !activeSigner.publicKey) {
       setTxError({ message: 'Connect your wallet to continue.' });
       return;
     }
-    if (!circle) return;
+    const activePk: PublicKey = activeSigner.publicKey;
 
-    if (isAlreadyMember) {
-      setTxError({ message: `Already a member in seat ${userMember?.slot}.` });
-      return;
-    }
+    if (!circle) return;
 
     if (isCircleFull) {
       setTxError({ message: 'This circle is full.' });
@@ -621,22 +1209,22 @@ export const CircleView: FC<CircleViewProps> = ({
       const { ata: memberAta, instruction: createAtaIx } = await getOrCreateAtaInstruction(
         connection,
         circle.tokenMint,
-        publicKey,
-        publicKey
+        activePk,
+        activePk
       );
       if (createAtaIx) {
         preInstructions.push(createAtaIx);
       }
 
-      const [memberPda] = getMemberPda(circle.address, publicKey);
-      const program = getSolthriftProgram(connection, wallet as any);
+      const [memberPda] = getMemberPda(circle.address, activePk);
+      const program = getSolthriftProgram(connection, activeSigner as any);
 
       const method = program.methods
         .joinCircle()
         .accounts({
           circle: circle.address,
           member: memberPda,
-          memberWallet: publicKey,
+          memberWallet: activePk,
           tokenMint: circle.tokenMint,
           memberTokenAccount: memberAta,
           vault: circle.vault,
@@ -646,9 +1234,10 @@ export const CircleView: FC<CircleViewProps> = ({
 
       const { signature: sig } = await executeProgramMethod({
         connection,
-        wallet,
+        wallet: activeSigner,
         method,
         preInstructions: preInstructions.length > 0 ? preInstructions : undefined,
+        onStatusChange: (status) => setTxPendingMsg(status),
       });
       setTxSuccess({
         signature: sig,
@@ -657,10 +1246,16 @@ export const CircleView: FC<CircleViewProps> = ({
 
       // Refetch latest circle and member accounts from chain
       await loadCircleData(circle.address.toBase58(), true);
+      if (demoMode) {
+        fetchDemoBalances();
+      }
+      return sig;
     } catch (err: any) {
       console.error('joinCircle failed:', err);
+      if (isUserCancellation(err)) return;
       const translated = translateProgramError(err);
       setTxError({ message: translated.message, details: translated.details });
+      throw err;
     } finally {
       setTxPending(false);
       setTxPendingMsg(null);
@@ -669,20 +1264,51 @@ export const CircleView: FC<CircleViewProps> = ({
 
   /**
    * Section 5, Instruction 3: Contribute
-   * Real on-chain contribution payment by the connected member
+   * Real on-chain contribution payment by the connected member (or specified member seat)
    */
-  const handleContribute = async () => {
-    if (!connected || !publicKey) {
-      setTxError({ message: 'Connect your wallet to continue.' });
+  const handleContribute = async (
+    specificMember?: RealMemberData | any,
+    customSignerWallet?: any
+  ): Promise<string | undefined> => {
+    if (!circle) return;
+
+    const targetMember: RealMemberData | null =
+      specificMember && typeof specificMember === 'object' && 'slot' in specificMember
+        ? (specificMember as RealMemberData)
+        : userMember;
+
+    if (!targetMember) {
+      setTxError({ message: 'Select an active member seat to pay for this turn.' });
       return;
     }
-    if (!circle || !userMember) {
-      setTxError({ message: 'You are not registered as an active member of this circle.' });
+
+    // Determine signer: customSignerWallet, or if targetMember is a demo key, or connected wallet
+    let activeSigner = customSignerWallet;
+    if (!activeSigner && demoMode && demoKeypairs && demoKeypairs[targetMember.slot]) {
+      activeSigner = createKeypairWallet(demoKeypairs[targetMember.slot]);
+    }
+    if (!activeSigner && connected && publicKey && targetMember.wallet.equals(publicKey)) {
+      activeSigner = wallet as any;
+    }
+
+    if (!activeSigner || !activeSigner.publicKey) {
+      handlePromptSwitchWallet(targetMember.slot);
+      setTxError({
+        message: `Please connect Account ${targetMember.slot} (${targetMember.wallet.toBase58().slice(0, 4)}...) to pay for this seat.`,
+      });
+      return;
+    }
+
+    const activePk: PublicKey = activeSigner.publicKey;
+    if (!targetMember.wallet.equals(activePk)) {
+      setTxError({
+        message: `Signer (${activePk.toBase58().slice(0, 4)}...) does not match Seat ${targetMember.slot} (${targetMember.wallet.toBase58().slice(0, 4)}...).`,
+      });
       return;
     }
 
     setTxPending(true);
-    setTxPendingMsg('Paying turn...');
+    setTxPendingMsg(`Paying turn for Seat ${targetMember.slot}...`);
     setTxError(null);
     setTxSuccess(null);
 
@@ -691,20 +1317,20 @@ export const CircleView: FC<CircleViewProps> = ({
       const { ata: memberAta, instruction: createAtaIx } = await getOrCreateAtaInstruction(
         connection,
         circle.tokenMint,
-        publicKey,
-        publicKey
+        activePk,
+        activePk
       );
       if (createAtaIx) {
         preInstructions.push(createAtaIx);
       }
 
-      const program = getSolthriftProgram(connection, wallet as any);
+      const program = getSolthriftProgram(connection, activeSigner as any);
       const method = program.methods
         .contribute()
         .accounts({
           circle: circle.address,
-          member: userMember.memberPda,
-          memberWallet: publicKey,
+          member: targetMember.memberPda,
+          memberWallet: activePk,
           tokenMint: circle.tokenMint,
           memberTokenAccount: memberAta,
           vault: circle.vault,
@@ -713,20 +1339,27 @@ export const CircleView: FC<CircleViewProps> = ({
 
       const { signature: sig } = await executeProgramMethod({
         connection,
-        wallet,
+        wallet: activeSigner,
         method,
         preInstructions: preInstructions.length > 0 ? preInstructions : undefined,
+        onStatusChange: (status) => setTxPendingMsg(status),
       });
       setTxSuccess({
         signature: sig,
-        message: 'You paid for this turn.',
+        message: `Paid turn for Seat ${targetMember.slot}.`,
       });
 
       await loadCircleData(circle.address.toBase58(), true);
+      if (demoMode) {
+        fetchDemoBalances();
+      }
+      return sig;
     } catch (err: any) {
       console.error('contribute failed:', err);
+      if (isUserCancellation(err)) return;
       const translated = translateProgramError(err);
       setTxError({ message: translated.message, details: translated.details });
+      throw err;
     } finally {
       setTxPending(false);
       setTxPendingMsg(null);
@@ -738,11 +1371,7 @@ export const CircleView: FC<CircleViewProps> = ({
    * Callable by anyone; recipient = payout_order[current_period - 1]
    * Passes that member's account and associated token account, creating it first if missing
    */
-  const handlePayout = async () => {
-    if (!connected || !publicKey) {
-      setTxError({ message: 'Connect your wallet to continue.' });
-      return;
-    }
+  const handlePayout = async (): Promise<string | undefined> => {
     if (!circle) return;
 
     if (!currentPeriodRecipientSlot) {
@@ -758,6 +1387,23 @@ export const CircleView: FC<CircleViewProps> = ({
 
     const [recMemberPda] = getMemberPda(circle.address, recWallet);
 
+    // Caller can be connected wallet or any funded demo key
+    let callerSigner: any = connected && publicKey ? wallet : null;
+    if (!callerSigner && demoMode && demoKeypairs) {
+      for (const s of [2, 3, 4]) {
+        if (demoKeypairs[s]) {
+          callerSigner = createKeypairWallet(demoKeypairs[s]);
+          break;
+        }
+      }
+    }
+
+    if (!callerSigner || !callerSigner.publicKey) {
+      setTxError({ message: 'No wallet or demo key available to trigger payout.' });
+      return;
+    }
+    const callerPk: PublicKey = callerSigner.publicKey;
+
     setTxPending(true);
     setTxPendingMsg(`Paying out to ${payoutRecipientDisplay}...`);
     setTxError(null);
@@ -770,13 +1416,13 @@ export const CircleView: FC<CircleViewProps> = ({
         connection,
         circle.tokenMint,
         recWallet,
-        publicKey // connected caller pays rent if ATA needs creation
+        callerPk
       );
       if (createAtaIx) {
         preInstructions.push(createAtaIx);
       }
 
-      const program = getSolthriftProgram(connection, wallet as any);
+      const program = getSolthriftProgram(connection, callerSigner as any);
       const method = program.methods
         .payout()
         .accounts({
@@ -785,41 +1431,64 @@ export const CircleView: FC<CircleViewProps> = ({
           tokenMint: circle.tokenMint,
           recipientTokenAccount: recipientAta,
           vault: circle.vault,
-          caller: publicKey,
+          caller: callerPk,
           tokenProgram: TOKEN_PROGRAM_ID,
         });
 
       const { signature: sig } = await executeProgramMethod({
         connection,
-        wallet,
+        wallet: callerSigner,
         method,
         preInstructions: preInstructions.length > 0 ? preInstructions : undefined,
+        onStatusChange: (status) => setTxPendingMsg(status),
       });
       setTxSuccess({
         signature: sig,
-        message: `You paid out to ${payoutRecipientDisplay}.`,
+        message: `Payout of ${formattedPotAmount} ${tokenSymbol} distributed to Seat ${currentPeriodRecipientSlot}.`,
       });
 
       await loadCircleData(circle.address.toBase58(), true);
+      if (demoMode) {
+        fetchDemoBalances();
+      }
+      return sig;
     } catch (err: any) {
       console.error('payout failed:', err);
+      if (isUserCancellation(err)) return;
       const translated = translateProgramError(err);
       setTxError({ message: translated.message, details: translated.details });
+      throw err;
     } finally {
       setTxPending(false);
       setTxPendingMsg(null);
     }
   };
 
+  // ⚡ AUTO-PAYOUT: When enabled, automatically initiates handlePayout as soon as turn conditions are met
+  useEffect(() => {
+    if (!autoPayoutEnabled) return;
+    if (canPayout && !txPending && !autoPayoutTriggeredRef.current) {
+      autoPayoutTriggeredRef.current = true;
+      console.log('[Auto-Payout] Turn complete! Automatically initiating payout to', payoutRecipientDisplay);
+      const timer = setTimeout(() => {
+        handlePayout();
+      }, 1200);
+      return () => clearTimeout(timer);
+    }
+  }, [canPayout, autoPayoutEnabled, txPending]);
+
+  // Reset autoPayout trigger guard when period changes or canPayout becomes false
+  useEffect(() => {
+    if (!canPayout) {
+      autoPayoutTriggeredRef.current = false;
+    }
+  }, [circle?.currentPeriod, canPayout]);
+
   /**
    * Section 5, Instruction 5: Remove Defaulter
    * Callable by anyone after deadline + grace against an active member who missed contribution
    */
-  const handleRemoveDefaulter = async (memberToRemove?: RealMemberData) => {
-    if (!connected || !publicKey) {
-      setTxError({ message: 'Connect your wallet to continue.' });
-      return;
-    }
+  const handleRemoveDefaulter = async (memberToRemove?: RealMemberData): Promise<string | undefined> => {
     if (!circle) return;
 
     const target = memberToRemove || targetLateMember;
@@ -827,6 +1496,23 @@ export const CircleView: FC<CircleViewProps> = ({
       setTxError({ message: 'No late member eligible for removal.' });
       return;
     }
+
+    // Caller can be connected wallet or any funded demo key
+    let callerSigner: any = connected && publicKey ? wallet : null;
+    if (!callerSigner && demoMode && demoKeypairs) {
+      for (const s of [2, 3, 4]) {
+        if (demoKeypairs[s]) {
+          callerSigner = createKeypairWallet(demoKeypairs[s]);
+          break;
+        }
+      }
+    }
+
+    if (!callerSigner || !callerSigner.publicKey) {
+      setTxError({ message: 'No wallet or demo key available to remove late member.' });
+      return;
+    }
+    const callerPk: PublicKey = callerSigner.publicKey;
 
     setTxPending(true);
     setTxPendingMsg('Removing late member...');
@@ -839,13 +1525,13 @@ export const CircleView: FC<CircleViewProps> = ({
         connection,
         circle.tokenMint,
         target.wallet,
-        publicKey
+        callerPk
       );
       if (createAtaIx) {
         preInstructions.push(createAtaIx);
       }
 
-      const program = getSolthriftProgram(connection, wallet as any);
+      const program = getSolthriftProgram(connection, callerSigner as any);
       const method = program.methods
         .removeDefaulter()
         .accounts({
@@ -854,15 +1540,16 @@ export const CircleView: FC<CircleViewProps> = ({
           tokenMint: circle.tokenMint,
           memberTokenAccount: memberAta,
           vault: circle.vault,
-          caller: publicKey,
+          caller: callerPk,
           tokenProgram: TOKEN_PROGRAM_ID,
         });
 
       const { signature: sig } = await executeProgramMethod({
         connection,
-        wallet,
+        wallet: callerSigner,
         method,
         preInstructions: preInstructions.length > 0 ? preInstructions : undefined,
+        onStatusChange: (status) => setTxPendingMsg(status),
       });
       setTxSuccess({
         signature: sig,
@@ -870,32 +1557,70 @@ export const CircleView: FC<CircleViewProps> = ({
       });
 
       await loadCircleData(circle.address.toBase58(), true);
+      if (demoMode) {
+        fetchDemoBalances();
+      }
+      return sig;
     } catch (err: any) {
       console.error('removeDefaulter failed:', err);
+      if (isUserCancellation(err)) return;
       const translated = translateProgramError(err);
       setTxError({ message: translated.message, details: translated.details });
+      throw err;
     } finally {
       setTxPending(false);
       setTxPendingMsg(null);
     }
   };
 
+  // ⚡ AUTO-REMOVE DEFAULTER: When enabled, automatically initiates handleRemoveDefaulter when grace expires
+  useEffect(() => {
+    if (!autoRemoveEnabled) return;
+    if (canRemoveDefaulter && targetLateMember && !txPending && !autoRemoveTriggeredRef.current) {
+      autoRemoveTriggeredRef.current = true;
+      console.log(
+        '[Auto-Remove] Grace period expired! Automatically initiating removal of Seat',
+        targetLateMember.slot
+      );
+      const timer = setTimeout(() => {
+        handleRemoveDefaulter(targetLateMember);
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [canRemoveDefaulter, targetLateMember, autoRemoveEnabled, txPending]);
+
+  // Reset autoRemove guard when currentPeriod changes or canRemoveDefaulter resets
+  useEffect(() => {
+    if (!canRemoveDefaulter) {
+      autoRemoveTriggeredRef.current = false;
+    }
+  }, [circle?.currentPeriod, canRemoveDefaulter]);
+
   /**
    * Section 5, Instruction 6: Flag Leaving
    * Signed by the member while Active or Filling
    */
   const handleFlagLeaving = async (targetMember?: RealMemberData) => {
-    if (!connected || !publicKey) {
-      setTxError({ message: 'Connect your wallet to continue.' });
-      return;
-    }
     if (!circle) return;
 
     const memberToFlag = targetMember || userMember;
     if (!memberToFlag) {
-      setTxError({ message: 'Member account not found for connected wallet.' });
+      setTxError({ message: 'Member account not found to flag leaving.' });
       return;
     }
+
+    let activeSigner: any = null;
+    if (demoMode && demoKeypairs && demoKeypairs[memberToFlag.slot]) {
+      activeSigner = createKeypairWallet(demoKeypairs[memberToFlag.slot]);
+    } else if (connected && publicKey && memberToFlag.wallet.equals(publicKey)) {
+      activeSigner = wallet;
+    }
+
+    if (!activeSigner || !activeSigner.publicKey) {
+      setTxError({ message: 'Connect your wallet or use demo key to flag leaving.' });
+      return;
+    }
+    const activePk: PublicKey = activeSigner.publicKey;
 
     setTxPending(true);
     setTxPendingMsg('Flagging leaving...');
@@ -903,29 +1628,30 @@ export const CircleView: FC<CircleViewProps> = ({
     setTxSuccess(null);
 
     try {
-      const program = getSolthriftProgram(connection, wallet as any);
+      const program = getSolthriftProgram(connection, activeSigner as any);
       const method = program.methods
         .flagLeaving()
         .accounts({
           circle: circle.address,
           member: memberToFlag.memberPda,
-          memberWallet: publicKey,
+          memberWallet: activePk,
         });
 
       const { signature: sig } = await executeProgramMethod({
         connection,
-        wallet,
+        wallet: activeSigner,
         method,
       });
 
       setTxSuccess({
         signature: sig,
-        message: 'You flagged leaving.',
+        message: `Seat ${memberToFlag.slot} flagged leaving.`,
       });
 
       await loadCircleData(circle.address.toBase58(), true);
     } catch (err: any) {
       console.error('flagLeaving failed:', err);
+      if (isUserCancellation(err)) return;
       const translated = translateProgramError(err);
       setTxError({ message: translated.message, details: translated.details });
     } finally {
@@ -939,10 +1665,6 @@ export const CircleView: FC<CircleViewProps> = ({
    * Callable by anyone during Filling or Closing for members who flagged leaving or when Closing
    */
   const handleExitMember = async (targetMember?: RealMemberData) => {
-    if (!connected || !publicKey) {
-      setTxError({ message: 'Connect your wallet to continue.' });
-      return;
-    }
     if (!circle) return;
 
     const memberToExit = targetMember || userMember;
@@ -950,6 +1672,22 @@ export const CircleView: FC<CircleViewProps> = ({
       setTxError({ message: 'Member account not found to exit.' });
       return;
     }
+
+    let callerSigner: any = connected && publicKey ? wallet : null;
+    if (!callerSigner && demoMode && demoKeypairs) {
+      for (const s of [2, 3, 4]) {
+        if (demoKeypairs[s]) {
+          callerSigner = createKeypairWallet(demoKeypairs[s]);
+          break;
+        }
+      }
+    }
+
+    if (!callerSigner || !callerSigner.publicKey) {
+      setTxError({ message: 'Connect your wallet or enable demo mode to exit circle.' });
+      return;
+    }
+    const callerPk: PublicKey = callerSigner.publicKey;
 
     setTxPending(true);
     setTxPendingMsg('Exiting circle...');
@@ -962,13 +1700,13 @@ export const CircleView: FC<CircleViewProps> = ({
         connection,
         circle.tokenMint,
         memberToExit.wallet,
-        publicKey
+        callerPk
       );
       if (createAtaIx) {
         preInstructions.push(createAtaIx);
       }
 
-      const program = getSolthriftProgram(connection, wallet as any);
+      const program = getSolthriftProgram(connection, callerSigner as any);
       const method = program.methods
         .exitMember()
         .accounts({
@@ -977,24 +1715,28 @@ export const CircleView: FC<CircleViewProps> = ({
           tokenMint: circle.tokenMint,
           memberTokenAccount: memberAta,
           vault: circle.vault,
-          caller: publicKey,
+          caller: callerPk,
           tokenProgram: TOKEN_PROGRAM_ID,
         });
 
       const { signature: sig } = await executeProgramMethod({
         connection,
-        wallet,
+        wallet: callerSigner,
         method,
         preInstructions: preInstructions.length > 0 ? preInstructions : undefined,
       });
       setTxSuccess({
         signature: sig,
-        message: 'You exited the circle.',
+        message: `Seat ${memberToExit.slot} exited circle; deposit refunded.`,
       });
 
       await loadCircleData(circle.address.toBase58(), true);
+      if (demoMode) {
+        fetchDemoBalances();
+      }
     } catch (err: any) {
       console.error('exitMember failed:', err);
+      if (isUserCancellation(err)) return;
       const translated = translateProgramError(err);
       setTxError({ message: translated.message, details: translated.details });
     } finally {
@@ -1061,6 +1803,7 @@ export const CircleView: FC<CircleViewProps> = ({
       await loadCircleData(circle.address.toBase58(), true);
     } catch (err: any) {
       console.error('claimRefund failed:', err);
+      if (isUserCancellation(err)) return;
       const translated = translateProgramError(err);
       setTxError({ message: translated.message, details: translated.details });
     } finally {
@@ -1127,6 +1870,7 @@ export const CircleView: FC<CircleViewProps> = ({
       await loadCircleData(circle.address.toBase58(), true);
     } catch (err: any) {
       console.error('claimForfeit failed:', err);
+      if (isUserCancellation(err)) return;
       const translated = translateProgramError(err);
       setTxError({ message: translated.message, details: translated.details });
     } finally {
@@ -1168,48 +1912,77 @@ export const CircleView: FC<CircleViewProps> = ({
 
       {/* Global Notifications */}
       {txPending && (
-        <div className="alert-box pending-alert" role="status">
+        <div className="alert-box pending-alert" role="status" style={{ border: '1px solid rgba(245, 158, 11, 0.4)', background: 'rgba(245, 158, 11, 0.12)' }}>
           <Loader2 size={18} className="spinner-icon" />
-          <span>{txPendingMsg || 'Transaction pending on the test network. Approve in your wallet.'}</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+            <span style={{ fontWeight: 600 }}>{txPendingMsg || 'Transaction pending on the test network.'}</span>
+            {txPendingMsg?.toLowerCase().includes('wallet') && (
+              <span style={{ fontSize: '0.82rem', color: '#fbbf24' }}>
+                Please check your browser toolbar or taskbar for the Phantom/Solflare extension popup to approve.
+              </span>
+            )}
+          </div>
         </div>
       )}
 
       {txSuccess && (
-        <div className="alert-box success-alert" role="status" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.5rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <CheckCircle2 size={18} className="text-green" />
-            <strong>{txSuccess.message}</strong>
+        <div className="alert-box success-alert" role="status" style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.75rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <CheckCircle2 size={18} className="text-green" />
+              <strong>{txSuccess.message}</strong>
+            </div>
+            <div style={{ fontSize: '0.85rem' }}>
+              Transaction signature:{' '}
+              <a
+                href={getExplorerUrl('tx', txSuccess.signature)}
+                target="_blank"
+                rel="noreferrer"
+                style={{ color: '#ffffff', textDecoration: 'underline', fontFamily: 'monospace' }}
+              >
+                {txSuccess.signature.slice(0, 16)}...{txSuccess.signature.slice(-16)}
+                <ExternalLink size={12} style={{ display: 'inline', marginLeft: '4px' }} />
+              </a>
+            </div>
           </div>
-          <div style={{ fontSize: '0.85rem' }}>
-            Transaction signature:{' '}
-            <a
-              href={getExplorerUrl('tx', txSuccess.signature)}
-              target="_blank"
-              rel="noreferrer"
-              style={{ color: '#ffffff', textDecoration: 'underline', fontFamily: 'monospace' }}
-            >
-              {txSuccess.signature.slice(0, 16)}...{txSuccess.signature.slice(-16)}
-              <ExternalLink size={12} style={{ display: 'inline', marginLeft: '4px' }} />
-            </a>
-          </div>
+          <button
+            type="button"
+            onClick={() => setTxSuccess(null)}
+            className="icon-action-btn"
+            aria-label="Dismiss message"
+            style={{ width: '28px', height: '28px', minWidth: '28px' }}
+          >
+            <X size={14} />
+          </button>
         </div>
       )}
 
       {txError && (
-        <div className="alert-box error-alert" role="alert">
-          <AlertTriangle size={18} />
-          <div>
-            <strong>Action failed</strong>
-            <p style={{ marginTop: '0.2rem', fontSize: '0.9rem' }}>{txError.message}</p>
-            {txError.details && (
-              <details className="error-details" style={{ marginTop: '0.4rem', fontSize: '0.75rem' }}>
-                <summary style={{ cursor: 'pointer' }}>Details</summary>
-                <code style={{ display: 'block', marginTop: '0.25rem', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-                  {txError.details}
-                </code>
-              </details>
-            )}
+        <div className="alert-box error-alert" role="alert" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
+            <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: '2px' }} />
+            <div>
+              <strong>Action failed</strong>
+              <p style={{ marginTop: '0.2rem', fontSize: '0.9rem' }}>{txError.message}</p>
+              {txError.details && (
+                <details className="error-details" style={{ marginTop: '0.4rem', fontSize: '0.75rem' }}>
+                  <summary style={{ cursor: 'pointer' }}>Details</summary>
+                  <code style={{ display: 'block', marginTop: '0.25rem', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                    {txError.details}
+                  </code>
+                </details>
+              )}
+            </div>
           </div>
+          <button
+            type="button"
+            onClick={() => setTxError(null)}
+            className="icon-action-btn"
+            aria-label="Dismiss error"
+            style={{ width: '28px', height: '28px', minWidth: '28px' }}
+          >
+            <X size={14} />
+          </button>
         </div>
       )}
 
@@ -1226,12 +1999,23 @@ export const CircleView: FC<CircleViewProps> = ({
 
       {/* Fetch Error State */}
       {!loading && fetchError && (
-        <div className="alert-box error-alert" role="alert">
-          <AlertTriangle size={20} />
-          <div>
-            <strong>Could not load circle</strong>
-            <p style={{ marginTop: '0.25rem', fontSize: '0.9rem' }}>{fetchError}</p>
+        <div className="alert-box error-alert" role="alert" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
+            <AlertTriangle size={20} style={{ flexShrink: 0, marginTop: '2px' }} />
+            <div>
+              <strong>Could not load circle</strong>
+              <p style={{ marginTop: '0.25rem', fontSize: '0.9rem' }}>{fetchError}</p>
+            </div>
           </div>
+          <button
+            type="button"
+            onClick={() => setFetchError(null)}
+            className="icon-action-btn"
+            aria-label="Dismiss error"
+            style={{ width: '28px', height: '28px', minWidth: '28px' }}
+          >
+            <X size={14} />
+          </button>
         </div>
       )}
 
@@ -1315,7 +2099,988 @@ export const CircleView: FC<CircleViewProps> = ({
 
       {/* REAL CIRCLE CONTENT: SPLIT LAYOUT */}
       {!loading && circle && (
-        <div className="circle-layout-split">
+        <>
+          {/* DEMO MODE SWITCH & CONTROLS (Devnet only per Requirement 1) */}
+          {isDevnet && (
+            <div style={{ marginBottom: '1.5rem' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: '0.75rem',
+                  background: 'rgba(255, 255, 255, 0.03)',
+                  border: '1px solid var(--glass-border-subtle)',
+                  borderRadius: '16px',
+                  padding: '0.75rem 1.25rem',
+                  marginBottom: demoMode ? '0.85rem' : 0,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                  <Sparkles size={18} style={{ color: '#38bdf8' }} />
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <strong style={{ fontSize: '0.95rem', color: '#ffffff' }}>Demo Mode</strong>
+                      <span
+                        className="badge-pill"
+                        style={{
+                          fontSize: '0.68rem',
+                          color: '#38bdf8',
+                          borderColor: 'rgba(56, 189, 248, 0.35)',
+                          padding: '1px 7px',
+                        }}
+                      >
+                        Devnet only
+                      </span>
+                    </div>
+                    <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                      Test 4-member circles end-to-end without opening secondary browser wallets.
+                    </span>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexWrap: 'wrap' }}>
+                  {demoMode && (
+                    <>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        style={{ fontSize: '0.78rem', padding: '0.4rem 0.85rem', gap: '0.35rem' }}
+                        onClick={() => setShowFundPanel(!showFundPanel)}
+                        title="Fund Demo Seats 2, 3, 4 with SOL and USDC in a single transaction"
+                      >
+                        <Coins size={14} />
+                        {showFundPanel ? 'Hide Funding Panel' : 'Fund demo members'}
+                      </button>
+
+                      <button
+                        type="button"
+                        className="btn-primary"
+                        style={{
+                          fontSize: '0.78rem',
+                          padding: '0.4rem 0.95rem',
+                          height: 'auto',
+                          minHeight: 'unset',
+                          gap: '0.4rem',
+                          background: autopilotRunning ? 'rgba(56, 189, 248, 0.25)' : undefined,
+                          borderColor: autopilotRunning ? '#38bdf8' : undefined,
+                        }}
+                        onClick={() => {
+                          setShowAutopilot(true);
+                          if (!autopilotRunning) {
+                            runAutopilot();
+                          }
+                        }}
+                        title="Run automated walkthrough demo"
+                      >
+                        {autopilotRunning ? (
+                          <>
+                            <Loader2 size={14} className="spinner-icon" />
+                            Autopilot running...
+                          </>
+                        ) : (
+                          <>
+                            <Play size={14} />
+                            Run the demo for me
+                          </>
+                        )}
+                      </button>
+                    </>
+                  )}
+
+                  <button
+                    type="button"
+                    className={`demo-mode-toggle-btn ${demoMode ? 'active' : ''}`}
+                    onClick={toggleDemoMode}
+                    aria-pressed={demoMode}
+                  >
+                    <span
+                      style={{
+                        width: '8px',
+                        height: '8px',
+                        borderRadius: '50%',
+                        background: demoMode ? '#38bdf8' : 'rgba(255, 255, 255, 0.35)',
+                        boxShadow: demoMode ? '0 0 8px #38bdf8' : 'none',
+                      }}
+                    />
+                    <span>Demo mode: {demoMode ? 'ON' : 'OFF'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Requirement 1: Permanent Banner when Demo mode is ON */}
+              {demoMode && (
+                <div className="demo-mode-banner">
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'flex-start',
+                      flexWrap: 'wrap',
+                      gap: '0.75rem',
+                    }}
+                  >
+                    <div>
+                      <strong
+                        style={{
+                          color: '#ffffff',
+                          fontSize: '0.92rem',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.45rem',
+                        }}
+                      >
+                        <Sparkles size={16} style={{ color: '#38bdf8' }} />
+                        Demo mode: seats 2 to 4 use throwaway test keys. Seat 1 is your real wallet.
+                      </strong>
+                      <p
+                        style={{
+                          margin: '0.3rem 0 0',
+                          fontSize: '0.8rem',
+                          color: 'rgba(255, 255, 255, 0.65)',
+                        }}
+                      >
+                        ⚠️ Throwaway keys are kept in memory only — reloading or closing this page will lose them.
+                      </p>
+                    </div>
+
+                    {demoKeypairs && (
+                      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                        {[2, 3, 4].map((slot) => {
+                          const kp = demoKeypairs[slot];
+                          const b = demoBalances[slot];
+                          return (
+                            <div
+                              key={slot}
+                              style={{
+                                fontSize: '0.75rem',
+                                fontFamily: 'var(--font-mono)',
+                                background: 'rgba(0, 0, 0, 0.35)',
+                                padding: '0.25rem 0.6rem',
+                                borderRadius: '8px',
+                                border: '1px solid rgba(255, 255, 255, 0.1)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.4rem',
+                              }}
+                            >
+                              <span style={{ color: '#94a3b8' }}>Seat {slot}:</span>
+                              <span style={{ color: '#f1f5f9', fontWeight: 600 }}>
+                                {kp.publicKey.toBase58().slice(0, 4)}...{kp.publicKey.toBase58().slice(-4)}
+                              </span>
+                              {b ? (
+                                <span style={{ color: '#38bdf8', fontSize: '0.72rem' }}>
+                                  ({b.sol.toFixed(2)} SOL · {b.token} {tokenSymbol})
+                                </span>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Requirement 3: "Fund demo members" Panel */}
+              {demoMode && showFundPanel && (
+                <div className="demo-funding-card">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: '1.05rem', color: '#ffffff', display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                        <Coins size={17} style={{ color: '#38bdf8' }} />
+                        Fund Demo Members
+                      </h3>
+                      <p style={{ margin: '0.2rem 0 0', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                        ONE transaction signed by your connected wallet that funds Seats 2, 3, and 4 with SOL, creates missing USDC ATAs, and transfers USDC.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="icon-action-btn"
+                      onClick={() => setShowFundPanel(false)}
+                      title="Close funding panel"
+                    >
+                      <X size={15} />
+                    </button>
+                  </div>
+
+                  <table className="demo-funding-table">
+                    <thead>
+                      <tr>
+                        <th>Seat</th>
+                        <th>Throwaway Address</th>
+                        <th>SOL Amount</th>
+                        <th>{tokenSymbol} Amount</th>
+                        <th>Current Balance</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[2, 3, 4].map((slot) => {
+                        const kp = demoKeypairs?.[slot];
+                        const b = demoBalances[slot];
+                        return (
+                          <tr key={slot}>
+                            <td>
+                              <strong>Seat {slot}</strong>
+                            </td>
+                            <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem' }}>
+                              {kp ? `${kp.publicKey.toBase58().slice(0, 6)}...${kp.publicKey.toBase58().slice(-6)}` : 'Generating...'}
+                            </td>
+                            <td>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                className="demo-input-num"
+                                value={fundAmounts[slot]?.sol ?? 0.05}
+                                onChange={(e) => {
+                                  const val = parseFloat(e.target.value) || 0;
+                                  setFundAmounts((prev) => ({
+                                    ...prev,
+                                    [slot]: { ...prev[slot], sol: val },
+                                  }));
+                                }}
+                              />{' '}
+                              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>SOL</span>
+                            </td>
+                            <td>
+                              <input
+                                type="number"
+                                step="1"
+                                min="0"
+                                className="demo-input-num"
+                                value={fundAmounts[slot]?.token ?? (slot === 4 ? 10 : 15)}
+                                onChange={(e) => {
+                                  const val = parseFloat(e.target.value) || 0;
+                                  setFundAmounts((prev) => ({
+                                    ...prev,
+                                    [slot]: { ...prev[slot], token: val },
+                                  }));
+                                }}
+                              />{' '}
+                              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{tokenSymbol}</span>
+                            </td>
+                            <td style={{ fontSize: '0.78rem' }}>
+                              {b ? (
+                                <span style={{ color: b.sol >= 0.01 ? '#10b981' : '#f59e0b' }}>
+                                  {b.sol.toFixed(3)} SOL · {b.token} {tokenSymbol}
+                                </span>
+                              ) : (
+                                <span style={{ color: 'var(--text-muted)' }}>Checking...</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '1rem' }}>
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={() => setShowFundPanel(false)}
+                      style={{ fontSize: '0.82rem', padding: '0.45rem 1rem' }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      disabled={txPending || !connected}
+                      onClick={handleFundDemoMembers}
+                      style={{ fontSize: '0.82rem', padding: '0.45rem 1.25rem', height: 'auto', minHeight: 'unset' }}
+                    >
+                      {txPending ? (
+                        <>
+                          <Loader2 size={14} className="spinner-icon" />
+                          Funding Demo Members...
+                        </>
+                      ) : (
+                        <>
+                          <Coins size={14} />
+                          Approve & Send Funding (1 Tx)
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Requirement 6: "Run the demo for me" Autopilot Card */}
+              {demoMode && showAutopilot && (
+                <div className="autopilot-card">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <Play size={18} style={{ color: '#38bdf8' }} />
+                      <h3 style={{ margin: 0, fontSize: '1.05rem', color: '#ffffff' }}>
+                        Autopilot Demo Walkthrough
+                      </h3>
+                      {autopilotRunning && (
+                        <span
+                          className="badge-pill"
+                          style={{
+                            fontSize: '0.7rem',
+                            color: '#38bdf8',
+                            borderColor: 'rgba(56, 189, 248, 0.4)',
+                            background: 'rgba(56, 189, 248, 0.1)',
+                          }}
+                        >
+                          Running
+                        </span>
+                      )}
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                      {!autopilotRunning ? (
+                        <button
+                          type="button"
+                          className="btn-primary"
+                          style={{ fontSize: '0.78rem', padding: '0.35rem 0.85rem', height: 'auto', minHeight: 'unset' }}
+                          onClick={runAutopilot}
+                        >
+                          <Play size={13} />
+                          Start Autopilot
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          style={{ fontSize: '0.78rem', padding: '0.35rem 0.85rem' }}
+                          onClick={stopAutopilot}
+                        >
+                          <Pause size={13} />
+                          Pause Autopilot
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        style={{ fontSize: '0.78rem', padding: '0.35rem 0.85rem' }}
+                        onClick={resetAutopilot}
+                      >
+                        <RefreshCw size={13} />
+                        Reset
+                      </button>
+                      <button
+                        type="button"
+                        className="icon-action-btn"
+                        onClick={() => setShowAutopilot(false)}
+                        title="Close autopilot card"
+                      >
+                        <X size={15} />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Autopilot Paused for Real Wallet Approval Prompt */}
+                  {autopilotWaitingApproval && (
+                    <div
+                      style={{
+                        background: 'rgba(245, 158, 11, 0.12)',
+                        border: '1px solid rgba(245, 158, 11, 0.45)',
+                        borderRadius: '14px',
+                        padding: '1rem 1.25rem',
+                        marginBottom: '1rem',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        gap: '1rem',
+                        flexWrap: 'wrap',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        <Wallet size={20} style={{ color: '#fbbf24', flexShrink: 0 }} />
+                        <div>
+                          <strong style={{ color: '#fbbf24', fontSize: '0.92rem', display: 'block' }}>
+                            Approval Required: Seat 1 is Your Real Wallet
+                          </strong>
+                          <span style={{ fontSize: '0.82rem', color: '#fef3c7' }}>
+                            {autopilotApprovalPrompt || 'Please approve Seat 1 contribution in your connected wallet.'}
+                          </span>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn-primary"
+                        style={{
+                          fontSize: '0.82rem',
+                          padding: '0.5rem 1.25rem',
+                          height: 'auto',
+                          minHeight: 'unset',
+                          background: '#f59e0b',
+                          borderColor: '#f59e0b',
+                          color: '#000000',
+                          fontWeight: 700,
+                        }}
+                        disabled={txPending}
+                        onClick={approveCurrentAutopilotStep}
+                      >
+                        {txPending ? (
+                          <>
+                            <Loader2 size={14} className="spinner-icon" />
+                            Approving in Wallet...
+                          </>
+                        ) : (
+                          'Approve in Real Wallet'
+                        )}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Live Countdown Box */}
+                  {autopilotCountdown !== null && (
+                    <div
+                      style={{
+                        background: 'rgba(56, 189, 248, 0.12)',
+                        border: '1px solid rgba(56, 189, 248, 0.45)',
+                        borderRadius: '14px',
+                        padding: '0.85rem 1.25rem',
+                        marginBottom: '1rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.75rem',
+                      }}
+                    >
+                      <Clock size={18} style={{ color: '#38bdf8' }} />
+                      <div>
+                        <strong style={{ color: '#38bdf8', fontSize: '0.9rem' }}>
+                          Waiting for Turn 2 grace period deadline...
+                        </strong>
+                        <div style={{ fontSize: '0.82rem', color: '#e0f2fe' }}>
+                          Live countdown: <strong>{autopilotCountdown}s</strong> remaining before Seat 4 can be removed on-chain.
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Readable Error State if Autopilot Fails */}
+                  {autopilotError && (
+                    <div
+                      style={{
+                        background: 'rgba(239, 68, 68, 0.12)',
+                        border: '1px solid rgba(239, 68, 68, 0.45)',
+                        borderRadius: '14px',
+                        padding: '0.85rem 1.25rem',
+                        marginBottom: '1rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '0.75rem',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                        <AlertTriangle size={18} style={{ color: '#ef4444', flexShrink: 0 }} />
+                        <div>
+                          <strong style={{ color: '#ef4444', fontSize: '0.88rem' }}>Autopilot Stopped</strong>
+                          <p style={{ margin: '0.15rem 0 0', fontSize: '0.82rem', color: '#fca5a5' }}>{autopilotError}</p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        style={{ fontSize: '0.75rem', padding: '0.35rem 0.75rem' }}
+                        onClick={() => setAutopilotError(null)}
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Autopilot Step Progress Log */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem', maxHeight: '380px', overflowY: 'auto' }}>
+                    {autopilotSteps.map((step, idx) => {
+                      const isDone = step.status === 'done';
+                      const isRunning = step.status === 'running';
+                      const isWaiting = step.status === 'waiting_approval';
+                      const isFailed = step.status === 'failed';
+                      const isSkipped = step.status === 'skipped';
+
+                      const itemClass = isRunning
+                        ? 'autopilot-step-item active'
+                        : isWaiting
+                        ? 'autopilot-step-item waiting'
+                        : isDone
+                        ? 'autopilot-step-item done'
+                        : isFailed
+                        ? 'autopilot-step-item failed'
+                        : 'autopilot-step-item';
+
+                      return (
+                        <div key={step.id} className={itemClass}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                            <div style={{ width: '22px', display: 'flex', justifyContent: 'center' }}>
+                              {isRunning && <Loader2 size={15} className="spinner-icon text-accent" />}
+                              {isDone && <CheckCircle2 size={16} className="text-green" />}
+                              {isWaiting && <Clock size={16} style={{ color: '#f59e0b' }} />}
+                              {isFailed && <AlertTriangle size={16} className="text-red" />}
+                              {isSkipped && <Info size={16} style={{ color: '#94a3b8' }} />}
+                              {!isRunning && !isDone && !isWaiting && !isFailed && !isSkipped && (
+                                <span style={{ fontSize: '0.75rem', color: 'var(--text-faint)' }}>{idx + 1}</span>
+                              )}
+                            </div>
+                            <div>
+                              <span
+                                style={{
+                                  fontWeight: isRunning || isWaiting ? 600 : 500,
+                                  color: isDone ? '#ffffff' : isRunning ? '#38bdf8' : isWaiting ? '#fbbf24' : 'var(--text-muted)',
+                                }}
+                              >
+                                {step.title}
+                              </span>
+                              {step.detail && (
+                                <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-faint)' }}>
+                                  {step.detail}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            {step.signature && (
+                              <a
+                                href={getExplorerUrl('tx', step.signature)}
+                                target="_blank"
+                                rel="noreferrer"
+                                style={{
+                                  fontSize: '0.72rem',
+                                  fontFamily: 'var(--font-mono)',
+                                  color: '#38bdf8',
+                                  textDecoration: 'underline',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '3px',
+                                }}
+                                title="View transaction on Solana Explorer"
+                              >
+                                {step.signature.slice(0, 6)}...{step.signature.slice(-4)}
+                                <ExternalLink size={11} />
+                              </a>
+                            )}
+                            <span
+                              style={{
+                                fontSize: '0.7rem',
+                                fontWeight: 600,
+                                textTransform: 'uppercase',
+                                color: isDone
+                                  ? '#10b981'
+                                  : isRunning
+                                  ? '#38bdf8'
+                                  : isWaiting
+                                  ? '#f59e0b'
+                                  : isFailed
+                                  ? '#ef4444'
+                                  : 'var(--text-faint)',
+                              }}
+                            >
+                              {step.status}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ⚡ 4-SEAT LIVE DEMO COCKPIT */}
+          <div
+            className="card demo-cockpit-card"
+            style={{
+              marginBottom: '1.75rem',
+              padding: '1.25rem 1.5rem',
+            }}
+          >
+            {/* Header row */}
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '0.75rem',
+                marginBottom: cockpitExpanded ? '1.25rem' : 0,
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <div
+                  style={{
+                    width: '36px',
+                    height: '36px',
+                    borderRadius: 'var(--radius-pill)',
+                    background: 'var(--glass-bg)',
+                    border: '1px solid var(--glass-border)',
+                    boxShadow: 'var(--glass-highlight)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#ffffff',
+                  }}
+                >
+                  <Wallet size={16} />
+                </div>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <h2 className="card-title" style={{ fontSize: '1.1rem', margin: 0 }}>
+                      4-Seat live demo cockpit
+                    </h2>
+                    <span className="badge-pill">
+                      Multi-wallet
+                    </span>
+                  </div>
+                  <p className="card-desc" style={{ fontSize: '0.825rem', margin: '0.2rem 0 0 0' }}>
+                    Switch accounts in Solflare or Phantom to control each seat with zero page reloads.
+                  </p>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <button
+                  type="button"
+                  className="search-btn"
+                  style={{
+                    padding: '0.45rem 1rem',
+                    fontSize: '0.8rem',
+                  }}
+                  onClick={handleCopyShareableLink}
+                  title="Copy direct shareable circle URL"
+                >
+                  {copiedCircleLink ? <Check size={14} className="text-green" /> : <Copy size={14} />}
+                  {copiedCircleLink ? 'Copied link' : 'Copy circle link'}
+                </button>
+
+                <button
+                  type="button"
+                  className="icon-action-btn"
+                  onClick={() => setCockpitExpanded(!cockpitExpanded)}
+                  title={cockpitExpanded ? 'Collapse Cockpit' : 'Expand Cockpit'}
+                  style={{ padding: '0.45rem' }}
+                >
+                  {cockpitExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                </button>
+              </div>
+            </div>
+
+            {cockpitExpanded && (
+              <>
+                {/* 4 Seat Columns */}
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: `repeat(${Math.min(circle.membersTarget, 4)}, minmax(0, 1fr))`,
+                    gap: '0.85rem',
+                  }}
+                >
+                  {Array.from({ length: circle.membersTarget }, (_, i) => i + 1).map((slotNum) => {
+                    const member = circle.loadedMembers.find((m) => m.slot === slotNum);
+                    const isTaken = !!member;
+                    const isDemoSeat = Boolean(demoMode && slotNum >= 2 && slotNum <= 4 && demoKeypairs && demoKeypairs[slotNum]);
+                    const demoKp = isDemoSeat && demoKeypairs ? demoKeypairs[slotNum] : null;
+                    const demoBal = isDemoSeat ? demoBalances[slotNum] : null;
+                    const assignedAddress = member
+                      ? member.wallet.toBase58()
+                      : isDemoSeat && demoKp
+                      ? demoKp.publicKey.toBase58()
+                      : knownWallets[slotNum] || null;
+                    const isWalletConnected = Boolean(assignedAddress);
+                    const isActiveNow = Boolean(
+                      connected && publicKey && assignedAddress && assignedAddress === publicKey.toBase58()
+                    );
+                    const isSelected = selectedSeat === slotNum;
+                    const canJoinThisSeat = Boolean(
+                      connected &&
+                      publicKey &&
+                      !isAlreadyMember &&
+                      isCircleOpen &&
+                      nextSlot === slotNum
+                    );
+                    const isPaidThisTurn = Boolean(
+                      isCircleActive && member && member.lastContributedPeriod === circle.currentPeriod
+                    );
+
+                    const cardBg = isActiveNow
+                      ? 'rgba(255, 255, 255, 0.08)'
+                      : isSelected
+                      ? 'rgba(255, 255, 255, 0.06)'
+                      : isDemoSeat
+                      ? 'rgba(56, 189, 248, 0.04)'
+                      : isWalletConnected
+                      ? 'rgba(255, 255, 255, 0.04)'
+                      : 'rgba(255, 255, 255, 0.015)';
+
+                    const cardBorder = isActiveNow
+                      ? '1px solid rgba(255, 255, 255, 0.45)'
+                      : isSelected
+                      ? '1px solid rgba(56, 189, 248, 0.65)'
+                      : isDemoSeat
+                      ? '1px solid rgba(56, 189, 248, 0.35)'
+                      : canJoinThisSeat
+                      ? '1px solid rgba(255, 255, 255, 0.22)'
+                      : isWalletConnected
+                      ? '1px solid var(--glass-border)'
+                      : '1px dashed var(--glass-border-subtle)';
+
+                    return (
+                      <div
+                        key={slotNum}
+                        onClick={() => {
+                          setSelectedSeat(slotNum);
+                          if (!isActiveNow && assignedAddress && !isDemoSeat) {
+                            handlePromptSwitchWallet(slotNum);
+                          }
+                        }}
+                        style={{
+                          background: cardBg,
+                          border: cardBorder,
+                          boxShadow: isSelected
+                            ? '0 0 14px rgba(56, 189, 248, 0.25), var(--glass-highlight)'
+                            : isActiveNow
+                            ? 'var(--glass-highlight)'
+                            : 'none',
+                          borderRadius: '14px',
+                          padding: '0.9rem 1rem',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          justifyContent: 'space-between',
+                          gap: '0.75rem',
+                          transition: 'all 0.2s ease',
+                          cursor: 'pointer',
+                        }}
+                        title={`Click to select Seat ${slotNum}`}
+                      >
+                        {/* Seat header */}
+                        <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                              <span style={{ fontWeight: 600, fontSize: '0.875rem', color: '#ffffff' }}>
+                                Seat {slotNum} {slotNum === 1 ? '(Creator)' : ''}
+                              </span>
+                              {isDemoSeat && (
+                                <span
+                                  className="badge-pill"
+                                  style={{
+                                    margin: 0,
+                                    fontSize: '0.65rem',
+                                    padding: '1px 5px',
+                                    color: '#38bdf8',
+                                    borderColor: 'rgba(56, 189, 248, 0.4)',
+                                    background: 'rgba(56, 189, 248, 0.1)',
+                                  }}
+                                >
+                                  ⚡ Demo Key
+                                </span>
+                              )}
+                            </div>
+                            {isActiveNow ? (
+                              <span className="badge-status paid" style={{ margin: 0, fontSize: '0.68rem', padding: '2px 8px' }}>
+                                <Check size={11} /> Active Now
+                              </span>
+                            ) : isDemoSeat ? (
+                              <span className="badge-pill" style={{ margin: 0, fontSize: '0.68rem', padding: '2px 8px', color: '#38bdf8', borderColor: 'rgba(56, 189, 248, 0.35)' }}>
+                                Ready
+                              </span>
+                            ) : isWalletConnected ? (
+                              <span className="badge-pill" style={{ margin: 0, fontSize: '0.68rem', padding: '2px 8px', color: '#10b981', borderColor: 'rgba(16, 185, 129, 0.35)' }}>
+                                <Check size={11} /> Connected
+                              </span>
+                            ) : (
+                              <span className="badge-pill" style={{ margin: 0, fontSize: '0.68rem', padding: '2px 8px', color: 'var(--text-faint)' }}>
+                                Unconnected
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Wallet info & Balances */}
+                          <div style={{ fontSize: '0.78rem', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
+                            {assignedAddress ? (
+                              <span title={assignedAddress}>
+                                {assignedAddress.slice(0, 4)}...{assignedAddress.slice(-4)}
+                              </span>
+                            ) : (
+                              <span style={{ color: 'var(--text-faint)' }}>Switch Solflare to Acc {slotNum}</span>
+                            )}
+                            {demoBal && (
+                              <div style={{ fontSize: '0.72rem', color: demoBal.sol >= 0.01 ? '#38bdf8' : '#f59e0b', marginTop: '2px' }}>
+                                {demoBal.sol.toFixed(3)} SOL · {demoBal.token} {tokenSymbol}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Status Indicator */}
+                        <div style={{ fontSize: '0.78rem' }}>
+                          {member?.status === 'Removed' ? (
+                            <span className="badge-status removed" style={{ margin: 0, fontSize: '0.72rem' }}>
+                              Removed
+                            </span>
+                          ) : member?.hasBeenPaid ? (
+                            <span className="badge-status settled" style={{ margin: 0, fontSize: '0.72rem' }}>
+                              Paid out
+                            </span>
+                          ) : isCircleActive ? (
+                            isPaidThisTurn ? (
+                              <span className="badge-status paid" style={{ margin: 0, fontSize: '0.72rem' }}>
+                                Turn {circle.currentPeriod} paid
+                              </span>
+                            ) : (
+                              <span className="badge-status pending" style={{ margin: 0, fontSize: '0.72rem' }}>
+                                Not paid yet
+                              </span>
+                            )
+                          ) : isCircleOpen ? (
+                            isTaken ? (
+                              <span className="badge-status joined" style={{ margin: 0, fontSize: '0.72rem' }}>
+                                Joined
+                              </span>
+                            ) : slotNum === nextSlot ? (
+                              <span className="badge-status queue" style={{ margin: 0, fontSize: '0.72rem' }}>
+                                Next seat to join
+                              </span>
+                            ) : (
+                              <span style={{ color: 'var(--text-faint)', fontSize: '0.72rem' }}>
+                                Waiting for Seat {slotNum - 1}
+                              </span>
+                            )
+                          ) : (
+                            <span style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>
+                              Status: {member?.status || 'Pending'}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div style={{ marginTop: 'auto', paddingTop: '0.25rem' }} onClick={(e) => e.stopPropagation()}>
+                          {/* 1. Demo Seat Join */}
+                          {isCircleOpen && isDemoSeat && demoKp && !isTaken && slotNum === nextSlot && (
+                            <button
+                              type="button"
+                              className="btn-primary"
+                              style={{ width: '100%', padding: '0.45rem', fontSize: '0.78rem', minHeight: '34px', height: 'auto' }}
+                              disabled={txPending}
+                              onClick={() => handleJoinCircle(createKeypairWallet(demoKp))}
+                            >
+                              ⚡ Join (Demo Seat {slotNum})
+                            </button>
+                          )}
+
+                          {/* 2. Real Wallet Join */}
+                          {isCircleOpen && !isDemoSeat && canJoinThisSeat && (
+                            <button
+                              type="button"
+                              className="btn-primary"
+                              style={{ width: '100%', padding: '0.45rem', fontSize: '0.78rem', minHeight: '34px', height: 'auto' }}
+                              disabled={txPending}
+                              onClick={handleJoinCircle}
+                            >
+                              Join Seat {slotNum}
+                            </button>
+                          )}
+
+                          {/* 3. If Open and this is next seat to join, but need to switch wallet account (when not in demo) */}
+                          {isCircleOpen && !isDemoSeat && !isTaken && slotNum === nextSlot && !canJoinThisSeat && (
+                            <button
+                              type="button"
+                              className="btn-secondary"
+                              style={{ width: '100%', padding: '0.45rem', fontSize: '0.76rem', minHeight: '34px', height: 'auto' }}
+                              disabled={txPending}
+                              onClick={() => handlePromptSwitchWallet(slotNum)}
+                              title="Switch wallet account to join this seat"
+                            >
+                              Switch to Acc {slotNum} to join
+                            </button>
+                          )}
+
+                          {/* 4. If Open and waiting for earlier seats to join first */}
+                          {isCircleOpen && !isTaken && slotNum > nextSlot && (
+                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textAlign: 'center', padding: '0.25rem' }}>
+                              Fills after Seat {slotNum - 1}
+                            </div>
+                          )}
+
+                          {/* 5. Demo Seat Contribute */}
+                          {isCircleActive && isDemoSeat && demoKp && member && member.status === 'Active' && !isPaidThisTurn && (
+                            <button
+                              type="button"
+                              className="btn-primary"
+                              style={{ width: '100%', padding: '0.45rem', fontSize: '0.78rem', minHeight: '34px', height: 'auto' }}
+                              disabled={nowSec > graceDeadline || txPending}
+                              onClick={() => handleContribute(member, createKeypairWallet(demoKp))}
+                            >
+                              ⚡ Pay Turn ({formattedContribution} {tokenSymbol})
+                            </button>
+                          )}
+
+                          {/* 6. Real Wallet Contribute */}
+                          {isCircleActive && !isDemoSeat && member && member.status === 'Active' && !isPaidThisTurn && (
+                            isActiveNow ? (
+                              <button
+                                type="button"
+                                className="btn-primary"
+                                style={{ width: '100%', padding: '0.45rem', fontSize: '0.78rem', minHeight: '34px', height: 'auto' }}
+                                disabled={nowSec > graceDeadline || txPending}
+                                onClick={() => handleContribute(member)}
+                              >
+                                Pay turn ({formattedContribution} {tokenSymbol})
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                className="btn-secondary"
+                                style={{ width: '100%', padding: '0.45rem', fontSize: '0.76rem', minHeight: '34px', height: 'auto' }}
+                                disabled={nowSec > graceDeadline || txPending}
+                                onClick={() => handlePromptSwitchWallet(slotNum)}
+                                title="Switch wallet to this seat's account to pay"
+                              >
+                                Switch & Pay Seat {slotNum}
+                              </button>
+                            )
+                          )}
+
+                          {/* 7. If Active and already paid */}
+                          {isCircleActive && isPaidThisTurn && (
+                            <div style={{ fontSize: '0.72rem', color: 'var(--status-paid)', textAlign: 'center', fontWeight: 500 }}>
+                              ✓ Payment locked in vault
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Helper Footer */}
+                <div
+                  style={{
+                    marginTop: '0.85rem',
+                    paddingTop: '0.75rem',
+                    borderTop: '1px solid var(--glass-border-subtle)',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    fontSize: '0.75rem',
+                    color: 'var(--text-muted)',
+                    flexWrap: 'wrap',
+                    gap: '0.5rem',
+                  }}
+                >
+                  <span>
+                    Tip: Click any seat to switch to it and prompt your wallet directly, with zero manual disconnects needed.
+                  </span>
+                  {publicKey && (
+                    <span style={{ fontFamily: 'var(--font-mono)' }}>
+                      Active: {publicKey.toBase58().slice(0, 4)}...{publicKey.toBase58().slice(-4)}
+                    </span>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+
+          <div className="circle-layout-split">
           {/* LEFT COLUMN: THE RING PANEL */}
           <div className="circle-layout-left">
             <Reveal revealKey={`circle-ring-card-${circle.address.toBase58()}`}>
@@ -1355,6 +3120,14 @@ export const CircleView: FC<CircleViewProps> = ({
                     <span style={{ color: 'var(--text-muted)' }}>Active members</span>
                     <strong style={{ color: '#ffffff' }}>{circle.activeMemberCount} of {circle.membersTarget}</strong>
                   </div>
+                  {hasReserve && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.825rem', marginBottom: '0.5rem', background: 'rgba(16, 185, 129, 0.1)', padding: '0.3rem 0.5rem', borderRadius: '6px' }}>
+                      <span style={{ color: '#10b981', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                        <Coins size={13} /> On-chain reserve pool
+                      </span>
+                      <strong style={{ color: '#10b981', fontFamily: 'monospace' }}>+{formattedReserve} {tokenSymbol}</strong>
+                    </div>
+                  )}
 
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.75rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                     <span style={{ fontFamily: 'var(--font-mono)' }}>
@@ -1602,6 +3375,62 @@ export const CircleView: FC<CircleViewProps> = ({
               </div>
             )}
 
+            {/* ACTION PANEL 1.6: MANUAL PAYMENT FOR ALL SEATS (Available when circle is Active) */}
+            {isCircleActive && (!userMember || demoMode) && (
+              <div className="card member-action-card" style={{ border: '1px solid rgba(255, 255, 255, 0.15)' }}>
+                <Reveal revealKey={`circle-manual-pay-${circle.address.toBase58()}`}>
+                  <div className="card-header-row" style={{ marginBottom: '0.75rem' }}>
+                    <div>
+                      <h2 className="card-title" style={{ fontSize: '1.15rem', margin: 0 }}>
+                        Manual turn payments
+                      </h2>
+                      <p className="card-desc" style={{ margin: '0.2rem 0 0 0' }}>
+                        Click a seat to switch wallet or trigger instant 1-click Demo payment for Turn {circle.currentPeriod}.
+                      </p>
+                    </div>
+                  </div>
+                </Reveal>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.65rem' }}>
+                  {circle.loadedMembers
+                    .filter((m) => m.status === 'Active')
+                    .map((m) => {
+                      const isPaid = m.lastContributedPeriod === circle.currentPeriod;
+                      const isDemo = Boolean(demoMode && demoKeypairs && demoKeypairs[m.slot]);
+                      return (
+                        <button
+                          key={m.slot}
+                          type="button"
+                          className={isPaid ? 'btn-secondary' : 'btn-primary'}
+                          style={{
+                            fontSize: '0.78rem',
+                            padding: '0.55rem',
+                            opacity: isPaid ? 0.6 : 1,
+                            minHeight: '38px',
+                          }}
+                          disabled={isPaid || txPending}
+                          onClick={() => {
+                            if (publicKey && m.wallet.equals(publicKey)) {
+                              handleContribute(m);
+                            } else if (isDemo && demoKeypairs) {
+                              handleContribute(m, createKeypairWallet(demoKeypairs[m.slot]));
+                            } else {
+                              handlePromptSwitchWallet(m.slot);
+                            }
+                          }}
+                        >
+                          {isPaid
+                            ? `✓ Seat ${m.slot} Paid`
+                            : isDemo
+                            ? `⚡ Pay Seat ${m.slot} (Demo Key)`
+                            : `Pay Seat ${m.slot} (${formattedContribution} ${tokenSymbol})`}
+                        </button>
+                      );
+                    })}
+                </div>
+              </div>
+            )}
+
             {/* ACTION PANEL 2: PROTOCOL TRIGGER ACTIONS */}
             <div className="card triggers-card" aria-labelledby="triggers-title">
               <Reveal revealKey={`circle-triggers-heading-${circle.address.toBase58()}`}>
@@ -1663,6 +3492,96 @@ export const CircleView: FC<CircleViewProps> = ({
                 </div>
               )}
 
+              {/* ⚡ Auto-Payout & Auto-Evict Toggles for Live Demos */}
+              {isCircleActive && (
+                <>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(16, 185, 129, 0.04))',
+                      border: '1px solid rgba(16, 185, 129, 0.35)',
+                      borderRadius: '12px',
+                      padding: '0.65rem 0.95rem',
+                      marginTop: '0.75rem',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <RefreshCw size={15} style={{ color: '#10b981' }} />
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontSize: '0.825rem', fontWeight: 600, color: '#ffffff' }}>
+                          Auto-Payout Pot on Completion
+                        </span>
+                        <span style={{ fontSize: '0.725rem', color: 'var(--text-muted)' }}>
+                          Automatically triggers payout prompt as soon as all contributions land
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      style={{
+                        padding: '0.25rem 0.75rem',
+                        fontSize: '0.75rem',
+                        borderRadius: '20px',
+                        background: autoPayoutEnabled ? '#10b981' : 'rgba(255, 255, 255, 0.05)',
+                        color: autoPayoutEnabled ? '#000000' : 'var(--text-muted)',
+                        fontWeight: 700,
+                        border: `1px solid ${autoPayoutEnabled ? '#10b981' : 'var(--glass-border-subtle)'}`,
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease',
+                      }}
+                      onClick={() => setAutoPayoutEnabled(!autoPayoutEnabled)}
+                    >
+                      {autoPayoutEnabled ? 'Active' : 'Off'}
+                    </button>
+                  </div>
+
+                  {/* Auto-Remove Defaulter Toggle for Live Demos */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.12), rgba(239, 68, 68, 0.04))',
+                      border: '1px solid rgba(239, 68, 68, 0.35)',
+                      borderRadius: '12px',
+                      padding: '0.65rem 0.95rem',
+                      marginTop: '0.5rem',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <ShieldAlert size={16} style={{ color: '#ef4444' }} />
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontSize: '0.825rem', fontWeight: 600, color: '#ffffff' }}>
+                          Auto-Evict Defaulter when Grace Expires
+                        </span>
+                        <span style={{ fontSize: '0.725rem', color: 'var(--text-muted)' }}>
+                          Automatically prompts removal of late member once deadline + grace ends
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      style={{
+                        padding: '0.25rem 0.75rem',
+                        fontSize: '0.75rem',
+                        borderRadius: '20px',
+                        background: autoRemoveEnabled ? '#ef4444' : 'rgba(255, 255, 255, 0.05)',
+                        color: autoRemoveEnabled ? '#ffffff' : 'var(--text-muted)',
+                        fontWeight: 700,
+                        border: `1px solid ${autoRemoveEnabled ? '#ef4444' : 'var(--glass-border-subtle)'}`,
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease',
+                      }}
+                      onClick={() => setAutoRemoveEnabled(!autoRemoveEnabled)}
+                    >
+                      {autoRemoveEnabled ? 'Active' : 'Off'}
+                    </button>
+                  </div>
+                </>
+              )}
+
               <div className="triggers-action-list" style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 {/* 1. Pay out to <member> */}
                 <div className="trigger-item">
@@ -1705,10 +3624,10 @@ export const CircleView: FC<CircleViewProps> = ({
                     disabled={!canRemoveDefaulter || txPending}
                     onClick={() => handleRemoveDefaulter()}
                   >
-                    {txPending && txPendingMsg?.includes('Removing late member') ? (
+                    {txPending && (txPendingMsg?.toLowerCase().includes('late member') || txPendingMsg?.toLowerCase().includes('wallet') || txPendingMsg?.toLowerCase().includes('simulating') || txPendingMsg?.toLowerCase().includes('solana')) ? (
                       <>
                         <Loader2 size={16} className="spinner-icon" />
-                        Removing late member...
+                        {txPendingMsg || 'Removing late member...'}
                       </>
                     ) : (
                       <>
@@ -2175,6 +4094,140 @@ export const CircleView: FC<CircleViewProps> = ({
               </div>
             </section>
 
+            {/* DISBURSEMENT RECORDS & PROOF OF POT CARD */}
+            <section className="card disbursements-section" aria-labelledby="disbursements-heading">
+              <Reveal revealKey={`circle-disbursements-heading-${circle.address.toBase58()}`}>
+                <div className="card-header-row">
+                  <div>
+                    <h2 id="disbursements-heading" className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <Award size={18} className="text-accent" />
+                      Disbursement records & pot distribution
+                    </h2>
+                    <p className="card-desc" style={{ margin: 0 }}>
+                      Verifiable on-chain record of pot payouts disbursed to each scheduled recipient seat.
+                    </p>
+                  </div>
+                  <span
+                    className="badge-pill"
+                    style={{
+                      borderColor: '#10b981',
+                      color: '#10b981',
+                      background: 'rgba(16, 185, 129, 0.08)',
+                    }}
+                  >
+                    {circle.loadedMembers.filter((m) => m.hasBeenPaid).length} of {circle.orderLen || circle.membersTarget} disbursed
+                  </span>
+                </div>
+              </Reveal>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '1rem' }}>
+                {Array.from({ length: circle.orderLen || circle.membersTarget }, (_, idx) => {
+                  const turnNum = idx + 1;
+                  const recipientSlot =
+                    circle.payoutOrder && circle.payoutOrder[idx] ? circle.payoutOrder[idx] : turnNum;
+                  const member = circle.loadedMembers.find((m) => m.slot === recipientSlot);
+                  const isPaid = member ? member.hasBeenPaid : false;
+                  const isCurrent = isCircleActive && circle.currentPeriod === turnNum;
+                  const potAmountFormatted = formatTokenAmount(
+                    circle.contribution.mul(new BN(circle.expectedContributors || circle.membersTarget)),
+                    tokenDecimals
+                  );
+
+                  return (
+                    <div
+                      key={`disbursement-turn-${turnNum}`}
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        background: isPaid
+                          ? 'rgba(16, 185, 129, 0.06)'
+                          : isCurrent
+                          ? 'rgba(245, 158, 11, 0.06)'
+                          : 'rgba(255, 255, 255, 0.02)',
+                        border: isPaid
+                          ? '1px solid rgba(16, 185, 129, 0.35)'
+                          : isCurrent
+                          ? '1px solid rgba(245, 158, 11, 0.35)'
+                          : '1px solid var(--glass-border-subtle)',
+                        borderRadius: '12px',
+                        padding: '0.85rem 1.1rem',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+                        <div
+                          style={{
+                            width: '32px',
+                            height: '32px',
+                            borderRadius: '50%',
+                            background: isPaid ? '#10b981' : isCurrent ? '#f59e0b' : 'rgba(255, 255, 255, 0.08)',
+                            color: isPaid || isCurrent ? '#000000' : 'var(--text-muted)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontWeight: 700,
+                            fontSize: '0.85rem',
+                          }}
+                        >
+                          {isPaid ? <Check size={16} /> : turnNum}
+                        </div>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <strong style={{ color: '#ffffff', fontSize: '0.9rem' }}>
+                              Turn {turnNum}: Seat {recipientSlot}
+                            </strong>
+                            {member && (
+                              <span style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
+                                ({member.wallet.toBase58().slice(0, 4)}...{member.wallet.toBase58().slice(-4)})
+                              </span>
+                            )}
+                          </div>
+                          <span style={{ fontSize: '0.78rem', color: isPaid ? '#34d399' : isCurrent ? '#fbbf24' : 'var(--text-muted)' }}>
+                            {isPaid
+                              ? `✅ Pot disbursed on-chain (${potAmountFormatted} ${tokenSymbol})`
+                              : isCurrent
+                              ? `⏳ In progress (Turn ${turnNum} recipient · Pot: ${potAmountFormatted} ${tokenSymbol})`
+                              : `Upcoming turn recipient`}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                        <span
+                          style={{
+                            fontSize: '0.72rem',
+                            fontWeight: 700,
+                            padding: '0.25rem 0.6rem',
+                            borderRadius: '6px',
+                            background: isPaid
+                              ? 'rgba(16, 185, 129, 0.15)'
+                              : isCurrent
+                              ? 'rgba(245, 158, 11, 0.15)'
+                              : 'rgba(255, 255, 255, 0.05)',
+                            color: isPaid ? '#10b981' : isCurrent ? '#f59e0b' : 'var(--text-muted)',
+                            border: `1px solid ${isPaid ? 'rgba(16, 185, 129, 0.3)' : isCurrent ? 'rgba(245, 158, 11, 0.3)' : 'rgba(255, 255, 255, 0.08)'}`,
+                          }}
+                        >
+                          {isPaid ? 'DISBURSED' : isCurrent ? 'CURRENT POT' : 'QUEUED'}
+                        </span>
+                        {member && (
+                          <a
+                            href={getExplorerUrl('address', member.wallet.toBase58())}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="icon-action-btn"
+                            title="Verify recipient wallet on Solana Explorer"
+                          >
+                            <ExternalLink size={13} />
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+
             {/* ACTIVITY RECORD */}
             <section className="card events-section" aria-labelledby="events-heading">
               <Reveal revealKey={`circle-activity-heading-${circle.address.toBase58()}`}>
@@ -2211,6 +4264,7 @@ export const CircleView: FC<CircleViewProps> = ({
             </section>
           </div>
         </div>
+        </>
       )}
     </div>
   );

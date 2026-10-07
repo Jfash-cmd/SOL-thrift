@@ -3,13 +3,18 @@ import {
   PublicKey,
   Connection,
   Transaction,
+  VersionedTransaction,
   TransactionInstruction,
+  Keypair,
+  SystemProgram,
+  LAMPORTS_PER_SOL,
 } from '@solana/web3.js';
 import { Program, AnchorProvider, BN } from '@coral-xyz/anchor';
 import type { AnchorWallet } from '@solana/wallet-adapter-react';
 import {
   getAssociatedTokenAddressSync,
   createAssociatedTokenAccountInstruction,
+  createTransferInstruction,
   getMint,
   TOKEN_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -190,9 +195,9 @@ const PLAIN_ENGLISH_ERROR_MAP: Record<number, string> = {
   6023: 'The signup window has not closed yet.',
   6024: 'You already paid for this turn.',
   6025: 'The time to pay for this turn has passed.',
-  6026: 'The deadline has not passed yet. Try again after the countdown ends.',
+  6026: 'The deadline and grace period have not expired on Solana yet. The cluster clock is slightly behind—please wait a few seconds and try again.',
   6027: 'This member already paid for this turn, so they cannot be removed.',
-  6028: 'Your deposit is too small to cover this payment.',
+  6028: "Member's remaining deposit is insufficient to cover this period's contribution.",
   6029: "Not everyone has paid yet, so the pot can't be paid out.",
   6030: 'This seat does not match the recipient scheduled for this turn.',
   6031: 'Wallet address does not match this seat.',
@@ -255,6 +260,304 @@ export interface ExecuteProgramMethodOptions {
   method: any; // Anchor MethodsBuilder
   preInstructions?: TransactionInstruction[];
   postInstructions?: TransactionInstruction[];
+  onStatusChange?: (status: string) => void;
+}
+
+/**
+ * Creates an in-memory signer wallet wrapping a Keypair.
+ * Signs transactions locally using keypair.partialSign() and broadcasts raw transactions,
+ * without opening browser wallet modals.
+ * Secrets remain strictly in memory and are never serialized, exported, or logged.
+ */
+export function createKeypairWallet(keypair: Keypair): WalletSignAndSend & AnchorWallet {
+  return {
+    publicKey: keypair.publicKey,
+    signTransaction: async <T extends Transaction | VersionedTransaction>(tx: T): Promise<T> => {
+      if ('partialSign' in tx) {
+        (tx as Transaction).partialSign(keypair);
+      }
+      return tx;
+    },
+    signAllTransactions: async <T extends Transaction | VersionedTransaction>(txs: T[]): Promise<T[]> => {
+      for (const tx of txs) {
+        if ('partialSign' in tx) {
+          (tx as Transaction).partialSign(keypair);
+        }
+      }
+      return txs;
+    },
+    sendTransaction: async (tx: Transaction, connection: Connection): Promise<string> => {
+      tx.partialSign(keypair);
+      return await connection.sendRawTransaction(tx.serialize(), {
+        skipPreflight: false,
+        preflightCommitment: 'confirmed',
+      });
+    },
+  };
+}
+
+export interface DemoRecipientFunding {
+  publicKey: PublicKey;
+  solAmount: number;
+  tokenAmount: number;
+}
+
+/**
+ * Funds demo member keypairs with SOL for gas/rent, creates their token accounts if missing,
+ * and transfers the specified USDC amounts from the connected payer wallet.
+ * Fits in a single transaction whenever possible; falls back to 2 transactions if size exceeds limits.
+ */
+export async function fundDemoMembers({
+  connection,
+  payerWallet,
+  tokenMint,
+  tokenDecimals,
+  recipients,
+  onStatusChange,
+}: {
+  connection: Connection;
+  payerWallet: WalletSignAndSend;
+  tokenMint: PublicKey;
+  tokenDecimals: number;
+  recipients: DemoRecipientFunding[];
+  onStatusChange?: (status: string) => void;
+}): Promise<string[]> {
+  if (!payerWallet.publicKey) {
+    throw new Error('Connected wallet is not available to fund demo members.');
+  }
+
+  onStatusChange?.('Preparing demo member funding transactions...');
+
+  const payerAta = getAssociatedTokenAddressSync(
+    tokenMint,
+    payerWallet.publicKey,
+    false,
+    TOKEN_PROGRAM_ID,
+    ASSOCIATED_TOKEN_PROGRAM_ID
+  );
+
+  const instructions: TransactionInstruction[] = [];
+
+  for (const r of recipients) {
+    // 1. SOL transfer for gas & rent
+    if (r.solAmount > 0) {
+      instructions.push(
+        SystemProgram.transfer({
+          fromPubkey: payerWallet.publicKey,
+          toPubkey: r.publicKey,
+          lamports: Math.round(r.solAmount * LAMPORTS_PER_SOL),
+        })
+      );
+    }
+
+    // 2. ATA creation if missing
+    const recipientAta = getAssociatedTokenAddressSync(
+      tokenMint,
+      r.publicKey,
+      false,
+      TOKEN_PROGRAM_ID,
+      ASSOCIATED_TOKEN_PROGRAM_ID
+    );
+
+    const accountInfo = await connection.getAccountInfo(recipientAta);
+    if (!accountInfo) {
+      instructions.push(
+        createAssociatedTokenAccountInstruction(
+          payerWallet.publicKey,
+          recipientAta,
+          r.publicKey,
+          tokenMint,
+          TOKEN_PROGRAM_ID,
+          ASSOCIATED_TOKEN_PROGRAM_ID
+        )
+      );
+    }
+
+    // 3. SPL Token transfer
+    if (r.tokenAmount > 0) {
+      const rawTokens = BigInt(Math.round(r.tokenAmount * Math.pow(10, tokenDecimals)));
+      instructions.push(
+        createTransferInstruction(
+          payerAta,
+          recipientAta,
+          payerWallet.publicKey,
+          rawTokens,
+          [],
+          TOKEN_PROGRAM_ID
+        )
+      );
+    }
+  }
+
+  const latestBlockhash = await connection.getLatestBlockhash('confirmed');
+
+  // Build single transaction
+  const tx = new Transaction();
+  instructions.forEach((ix) => tx.add(ix));
+  tx.feePayer = payerWallet.publicKey;
+  tx.recentBlockhash = latestBlockhash.blockhash;
+
+  let serializedLength = 0;
+  try {
+    serializedLength = tx.serialize({ requireAllSignatures: false, verifySignatures: false }).length;
+  } catch {
+    serializedLength = tx.serializeMessage().length;
+  }
+
+  const signatures: string[] = [];
+
+  if (serializedLength <= 1180) {
+    onStatusChange?.('Simulating funding transaction (1 tx)...');
+    const sim = await connection.simulateTransaction(tx);
+    if (sim.value.err) {
+      const simErr: any = new Error(`Simulation failed: ${JSON.stringify(sim.value.err)}`);
+      simErr.simulationError = sim.value.err;
+      simErr.logs = sim.value.logs;
+      throw simErr;
+    }
+
+    onStatusChange?.('Please approve the funding transaction in your wallet...');
+    let sig: string;
+    if (typeof payerWallet.sendTransaction === 'function') {
+      sig = await payerWallet.sendTransaction(tx, connection, {
+        preflightCommitment: 'confirmed',
+        skipPreflight: false,
+      });
+    } else if (typeof payerWallet.signTransaction === 'function') {
+      sig = await fallbackSignAndSendTransaction(payerWallet as any, connection, tx);
+    } else {
+      throw new Error('Connected wallet does not support sending transactions.');
+    }
+
+    onStatusChange?.('Confirming funding transaction on Solana...');
+    await confirmTransactionWithPolling(
+      connection,
+      sig,
+      latestBlockhash.blockhash,
+      latestBlockhash.lastValidBlockHeight
+    );
+    signatures.push(sig);
+  } else {
+    onStatusChange?.('Splitting funding into 2 transactions to fit Solana limit...');
+    const half = Math.ceil(instructions.length / 2);
+    const tx1Instructions = instructions.slice(0, half);
+    const tx2Instructions = instructions.slice(half);
+
+    for (const [idx, partIxs] of [tx1Instructions, tx2Instructions].entries()) {
+      const partTx = new Transaction();
+      partIxs.forEach((ix) => partTx.add(ix));
+      partTx.feePayer = payerWallet.publicKey;
+      const bHash = await connection.getLatestBlockhash('confirmed');
+      partTx.recentBlockhash = bHash.blockhash;
+
+      onStatusChange?.(`Please approve funding part ${idx + 1} of 2 in your wallet...`);
+      let s: string;
+      if (typeof payerWallet.sendTransaction === 'function') {
+        s = await payerWallet.sendTransaction(partTx, connection, {
+          preflightCommitment: 'confirmed',
+        });
+      } else if (typeof payerWallet.signTransaction === 'function') {
+        s = await fallbackSignAndSendTransaction(payerWallet as any, connection, partTx);
+      } else {
+        throw new Error('Connected wallet does not support sending transactions.');
+      }
+
+      onStatusChange?.(`Confirming part ${idx + 1} of 2...`);
+      await confirmTransactionWithPolling(connection, s, bHash.blockhash, bHash.lastValidBlockHeight);
+      signatures.push(s);
+    }
+  }
+
+  return signatures;
+}
+
+/**
+ * Robust transaction confirmation: races WebSocket confirmation with HTTP polling
+ * to guarantee transactions never hang indefinitely if Devnet WebSocket drops.
+ */
+export async function confirmTransactionWithPolling(
+  connection: Connection,
+  signature: string,
+  blockhash: string,
+  lastValidBlockHeight: number,
+  timeoutMs: number = 45000
+): Promise<void> {
+  const start = Date.now();
+
+  const wsConfirmPromise = connection
+    .confirmTransaction(
+      {
+        signature,
+        blockhash,
+        lastValidBlockHeight,
+      },
+      'confirmed'
+    )
+    .then((res) => {
+      if (res.value.err) {
+        throw new Error(
+          `Transaction confirmation failed on-chain: ${JSON.stringify(res.value.err)}`
+        );
+      }
+    });
+
+  const pollPromise = new Promise<void>(async (resolve, reject) => {
+    while (Date.now() - start < timeoutMs) {
+      await new Promise((r) => setTimeout(r, 1500));
+      try {
+        const { value: status } = await connection.getSignatureStatus(signature, {
+          searchTransactionHistory: false,
+        });
+        if (status) {
+          if (status.err) {
+            reject(
+              new Error(
+                `Transaction confirmation failed on-chain: ${JSON.stringify(status.err)}`
+              )
+            );
+            return;
+          }
+          if (
+            status.confirmationStatus === 'confirmed' ||
+            status.confirmationStatus === 'finalized'
+          ) {
+            resolve();
+            return;
+          }
+        }
+      } catch {
+        // Ignore transient RPC polling errors
+      }
+    }
+
+    try {
+      const { value: status } = await connection.getSignatureStatus(signature);
+      if (
+        status &&
+        (status.confirmationStatus === 'confirmed' ||
+          status.confirmationStatus === 'finalized')
+      ) {
+        if (status.err) {
+          reject(
+            new Error(
+              `Transaction confirmation failed on-chain: ${JSON.stringify(status.err)}`
+            )
+          );
+        } else {
+          resolve();
+        }
+        return;
+      }
+    } catch {}
+
+    reject(
+      new Error(
+        `Confirmation timed out after ${Math.round(timeoutMs / 1000)}s on Devnet. Check explorer to verify.`
+      )
+    );
+  });
+
+  await Promise.race([wsConfirmPromise, pollPromise]);
 }
 
 /**
@@ -285,6 +588,7 @@ export async function executeProgramMethod({
   method,
   preInstructions,
   postInstructions,
+  onStatusChange,
 }: ExecuteProgramMethodOptions): Promise<{ signature: string; tx: Transaction }> {
   if (!wallet || !wallet.publicKey) {
     throw new Error('Wallet not connected. Connect your wallet to proceed.');
@@ -298,16 +602,16 @@ export async function executeProgramMethod({
     method.postInstructions(postInstructions);
   }
 
+  onStatusChange?.('Preparing and simulating transaction...');
+
   // 2. Build the transaction explicitly:
-  // program.methods.createCircle(...).accounts(...).preInstructions(...).transaction()
-  // then set feePayer = the connected wallet and recentBlockhash from connection.getLatestBlockhash("confirmed") yourself.
   const tx: Transaction = await method.transaction();
   tx.feePayer = wallet.publicKey;
 
   const latestBlockhash = await connection.getLatestBlockhash('confirmed');
   tx.recentBlockhash = latestBlockhash.blockhash;
 
-  // 4. Log the serialized transaction size in bytes and the number of accounts and instructions. Warn if it is over 1200 bytes.
+  // Log serialized metrics
   let serializedBytes: Uint8Array;
   try {
     serializedBytes = tx.serialize({ requireAllSignatures: false, verifySignatures: false });
@@ -335,9 +639,7 @@ export async function executeProgramMethod({
     );
   }
 
-  // 3. BEFORE asking the wallet to sign, call connection.simulateTransaction on it.
-  // If the simulation fails, show the simulation error and its logs on the page and do NOT open the wallet.
-  // If it succeeds, log "simulation ok" and the units consumed.
+  // 3. Simulate before asking wallet to sign
   const sim = await connection.simulateTransaction(tx);
   if (sim.value.err) {
     console.error('[Solthrift Simulation Error]:', sim.value.err, sim.value.logs);
@@ -350,9 +652,9 @@ export async function executeProgramMethod({
   }
   console.log('simulation ok', sim.value.unitsConsumed);
 
-  // 5. Send using wallet.sendTransaction(tx, connection) from useWallet() (the wallet's sign-and-send path)
-  // instead of signTransaction followed by sendRawTransaction.
-  // Keep the old path as a fallback behind a clearly named function, used only if sendTransaction is unavailable.
+  // 4. Prompt wallet to sign and send
+  onStatusChange?.('Please approve the transaction in your wallet...');
+
   let signature: string;
   if (typeof wallet.sendTransaction === 'function') {
     signature = await wallet.sendTransaction(tx, connection, {
@@ -366,24 +668,15 @@ export async function executeProgramMethod({
   }
 
   console.log('[Solthrift Tx Sent] Signature:', signature);
+  onStatusChange?.('Transaction submitted. Confirming on Solana...');
 
-  // Confirm with the blockhash and lastValidBlockHeight
-  const confirmation = await connection.confirmTransaction(
-    {
-      signature,
-      blockhash: latestBlockhash.blockhash,
-      lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
-    },
-    'confirmed'
+  // 5. Confirm with polling fallback so it never hangs indefinitely
+  await confirmTransactionWithPolling(
+    connection,
+    signature,
+    latestBlockhash.blockhash,
+    latestBlockhash.lastValidBlockHeight
   );
-
-  if (confirmation.value.err) {
-    const confirmErr: any = new Error(
-      `Transaction confirmation failed on-chain: ${JSON.stringify(confirmation.value.err)}`
-    );
-    confirmErr.signature = signature;
-    throw confirmErr;
-  }
 
   return { signature, tx };
 }
@@ -403,8 +696,95 @@ export function translateProgramError(err: any): {
 
   const errStr = String(err.message || err);
 
-  // 1. Simulation failure: Surface logs and simulation error directly
-  if (err.simulationError || (err.logs && err.logs.length > 0 && errStr.includes('Simulation failed'))) {
+  // 1. Simulation failure: Parse underlying error from logs and simulationError if present
+  const logsArr: string[] = Array.isArray(err.logs) ? err.logs : [];
+  const logsText = logsArr.join('\n');
+  const combinedText = `${errStr}\n${logsText}\n${JSON.stringify(err.simulationError ?? '')}`;
+
+  // 1a. Check for Anchor / custom code in simulation error or logs:
+  // e.g. err.simulationError.InstructionError[1].Custom or "Custom": 6026 or "custom program error: 0x178a"
+  let parsedCustomCode: number | null = null;
+  if (typeof err.simulationError === 'object' && err.simulationError !== null) {
+    const rawCustom =
+      err.simulationError?.InstructionError?.[1]?.Custom ??
+      err.simulationError?.InstructionError?.[1] ??
+      err.simulationError?.Custom;
+    if (typeof rawCustom === 'number') {
+      parsedCustomCode = rawCustom;
+    }
+  }
+  if (parsedCustomCode === null) {
+    const customMatch =
+      combinedText.match(/"Custom":\s*(\d+)/i) ||
+      combinedText.match(/Error Number:\s*(\d+)/i);
+    if (customMatch && customMatch[1]) {
+      parsedCustomCode = Number(customMatch[1]);
+    }
+  }
+  if (parsedCustomCode === null) {
+    const hexMatch = combinedText.match(/custom program error:\s*0x([0-9a-fA-F]+)/i);
+    if (hexMatch && hexMatch[1]) {
+      parsedCustomCode = parseInt(hexMatch[1], 16);
+    }
+  }
+
+  if (parsedCustomCode !== null && PLAIN_ENGLISH_ERROR_MAP[parsedCustomCode]) {
+    const match = ERROR_CODE_MAP.get(parsedCustomCode);
+    return {
+      code: parsedCustomCode,
+      name: match?.name,
+      message: PLAIN_ENGLISH_ERROR_MAP[parsedCustomCode],
+      details: `0x${parsedCustomCode.toString(16)} (${match?.name || 'Code ' + parsedCustomCode}): ${match?.msg || errStr}\n\nLogs:\n${logsText}`,
+    };
+  }
+
+  // 1b. Check for Error Code by name in logs
+  for (const log of logsArr) {
+    const logMatch = String(log).match(/Error Code:\s*([a-zA-Z0-9]+)/i);
+    if (logMatch && logMatch[1]) {
+      const found = ERROR_NAME_MAP.get(logMatch[1].toLowerCase());
+      if (found) {
+        const plain = PLAIN_ENGLISH_ERROR_MAP[found.code] || found.msg;
+        return {
+          code: found.code,
+          name: found.name,
+          message: plain,
+          details: `${found.name} (${found.code}): ${found.msg}\n\nLogs:\n${logsText}`,
+        };
+      }
+    }
+  }
+
+  // 1c. Check for SPL Token insufficient funds in simulation or logs
+  const isInsufficientTokenFundsInSim =
+    parsedCustomCode === 1 ||
+    combinedText.toLowerCase().includes('custom program error: 0x1') ||
+    combinedText.toLowerCase().includes('transfer: insufficient funds');
+
+  if (isInsufficientTokenFundsInSim) {
+    return {
+      code: 1,
+      name: 'InsufficientTokenFunds',
+      message:
+        'Insufficient token balance in your wallet. You need test tokens (e.g. devnet USDC) to cover your upfront deposit. You have SOL for gas fees, but circles require test tokens.',
+      details: `SPL Token Error 0x1: Insufficient funds in token account\n\nLogs:\n${logsText}`,
+    };
+  }
+
+  // 1d. Check for Insufficient SOL for fees or rent in simulation
+  if (
+    combinedText.includes('Attempt to debit an account but found no record of a prior credit') ||
+    combinedText.toLowerCase().includes('insufficient funds for rent') ||
+    combinedText.toLowerCase().includes('insufficient lamports')
+  ) {
+    return {
+      message: 'Not enough SOL in wallet to pay network fee and account rent.',
+      details: `${errStr}\n\nLogs:\n${logsText}`,
+    };
+  }
+
+  // 1e. Fallback simulation failure when no specific program error was identified
+  if (err.simulationError || (logsArr.length > 0 && errStr.includes('Simulation failed'))) {
     console.error('[Simulation Error]:', {
       error: err.simulationError,
       logs: err.logs,
@@ -413,7 +793,7 @@ export function translateProgramError(err: any): {
     return {
       name: 'SimulationError',
       message: 'Transaction simulation failed on Solana before opening your wallet.',
-      details: `Simulation Error: ${JSON.stringify(err.simulationError ?? err.message)}\n\nLogs:\n${(err.logs || []).join('\n')}`,
+      details: `Simulation Error: ${JSON.stringify(err.simulationError ?? err.message)}\n\nLogs:\n${logsText}`,
     };
   }
 
@@ -452,7 +832,7 @@ export function translateProgramError(err: any): {
       innerMsg?.includes('User rejected') ||
       innerCode === 4001
     ) {
-      plainMessage = 'Transaction request was cancelled in your wallet. Approve the prompt in Phantom to continue.';
+      plainMessage = 'Transaction request was cancelled in your wallet. Approve the prompt to continue.';
     } else {
       plainMessage =
         'Wallet failed to sign or send the transaction. Check that your wallet extension is unlocked, connected to Solana Devnet, and has sufficient SOL.';
@@ -581,5 +961,72 @@ export function translateProgramError(err: any): {
   const cleanMsg = errStr.replace(/^Error:\s*/, '');
   return { message: cleanMsg, details: errStr !== cleanMsg ? errStr : undefined };
 }
+
+/**
+ * Detects if an error is a user-initiated rejection, popup close, or cancellation
+ */
+export function isUserCancellation(err: any): boolean {
+  if (!err) return false;
+  const name = String(err?.name || '');
+  const msg = String(err?.message || err || '').toLowerCase();
+  const innerMsg = String(err?.error?.message || (err as any)?.cause?.message || '').toLowerCase();
+  const code = err?.code ?? err?.error?.code ?? (err as any)?.cause?.code;
+
+  if (code === 4001) return true;
+  if (
+    name === 'WalletWindowClosedError' ||
+    name === 'WalletWindowBlockedError' ||
+    (name === 'WalletSignTransactionError' && (msg.includes('reject') || msg.includes('cancel') || msg.includes('closed'))) ||
+    (name === 'WalletSendTransactionError' && (msg.includes('reject') || msg.includes('cancel') || msg.includes('closed')))
+  ) {
+    return true;
+  }
+  if (
+    msg.includes('user rejected') ||
+    msg.includes('transaction was rejected') ||
+    msg.includes('rejected the request') ||
+    msg.includes('request was rejected') ||
+    msg.includes('cancelled') ||
+    msg.includes('canceled') ||
+    msg.includes('closed') ||
+    innerMsg.includes('user rejected') ||
+    innerMsg.includes('transaction was rejected') ||
+    innerMsg.includes('rejected the request') ||
+    innerMsg.includes('cancelled') ||
+    innerMsg.includes('canceled')
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Extracts a valid base58 Solana public key from raw input, URLs, hashes, or explorer links
+ */
+export function extractSolanaAddress(raw: string): string {
+  let cleaned = (raw || '').trim();
+  if (!cleaned) return '';
+
+  // Extract from circle URL: .../circle/<address> or ...#/circle/<address>
+  if (cleaned.includes('/circle/')) {
+    const parts = cleaned.split('/circle/');
+    cleaned = parts[parts.length - 1];
+  }
+  // Extract from Solana Explorer URL: .../address/<address>
+  if (cleaned.includes('/address/')) {
+    const parts = cleaned.split('/address/');
+    cleaned = parts[parts.length - 1];
+  }
+  // Strip query parameters and hash fragments
+  cleaned = cleaned.split('?')[0].split('#')[0].trim();
+
+  // Match 32 to 44 base58 characters
+  const match = cleaned.match(/[1-9A-HJ-NP-za-km-z]{32,44}/);
+  if (match) {
+    return match[0];
+  }
+  return cleaned;
+}
+
 
 

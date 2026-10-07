@@ -58,8 +58,14 @@ export const PlanetBackdrop: FC<PlanetBackdropProps> = ({ routeTab = 'home' }) =
       <div className="saturn-star star-6" />
 
       <div className="saturn-system">
-        {/* Celestial moon adding depth & scale */}
-        <div className="saturn-moon" />
+        {/* ==================================================================
+            LAYER: Back Orbit Tracks (clipped to upper/back half, passes BEHIND globe)
+            ================================================================== */}
+        <div className="saturn-orbit-track-container track-back">
+          <div className="saturn-orbit-track track-outer" />
+          <div className="saturn-orbit-track track-mid" />
+          <div className="saturn-orbit-track track-inner" />
+        </div>
 
         {/* Faint atmospheric haze around the planet globe */}
         <div className="saturn-atmosphere-glow" />
@@ -114,6 +120,39 @@ export const PlanetBackdrop: FC<PlanetBackdropProps> = ({ routeTab = 'home' }) =
               <div className="saturn-ring-microgrooves" />
               <div className="saturn-ring-speckle" />
             </div>
+          </div>
+        </div>
+
+        {/* ==================================================================
+            LAYER 4: Front Orbit Tracks (Clipped to lower/front half, passes IN FRONT)
+            ================================================================== */}
+        <div className="saturn-orbit-track-container track-front">
+          <div className="saturn-orbit-track track-outer" />
+          <div className="saturn-orbit-track track-mid" />
+          <div className="saturn-orbit-track track-inner" />
+        </div>
+
+        {/* ==================================================================
+            LAYER 5: 3D Moons (Horizontal Orbit Spinners, z-index depth switched)
+            - Titan (Outer Orbit, 920px): Warm silver 3D sphere (11px)
+            - Enceladus (Mid Orbit, 800px): Brilliant ice-silver 3D sphere (8.5px)
+            - Mimas (Inner Orbit, 660px): Pearl grey 3D sphere (6.5px)
+            ================================================================== */}
+        <div className="saturn-moon-orbit-spinner spin-outer">
+          <div className="saturn-moon-pos">
+            <div className="saturn-moon-3d moon-titan" title="Titan" />
+          </div>
+        </div>
+
+        <div className="saturn-moon-orbit-spinner spin-mid">
+          <div className="saturn-moon-pos">
+            <div className="saturn-moon-3d moon-enceladus" title="Enceladus" />
+          </div>
+        </div>
+
+        <div className="saturn-moon-orbit-spinner spin-inner">
+          <div className="saturn-moon-pos">
+            <div className="saturn-moon-3d moon-mimas" title="Mimas" />
           </div>
         </div>
       </div>

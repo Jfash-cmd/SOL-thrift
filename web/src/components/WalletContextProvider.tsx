@@ -1,5 +1,5 @@
 import type { FC, ReactNode } from 'react';
-import { useMemo, useState, useCallback, createContext, useContext } from 'react';
+import { useMemo, useState, useEffect, useCallback, createContext, useContext } from 'react';
 import { ConnectionProvider, WalletProvider } from '@solana/wallet-adapter-react';
 import { WalletModalProvider } from '@solana/wallet-adapter-react-ui';
 import { clusterApiUrl } from '@solana/web3.js';
@@ -54,35 +54,55 @@ export const WalletContextProvider: FC<Props> = ({ children }) => {
     setWalletError(null);
   }, []);
 
-  const handleError = useCallback((error: any, adapter?: any) => {
-    // Log full error to console as requested
-    console.error('Solana wallet error:', error, adapter);
-
-    const walletName = adapter?.name || (error?.name?.includes('Phantom') ? 'Phantom' : 'Wallet');
-
-    if (error?.name === 'WalletNotReadyError') {
-      setWalletError('No wallet found. Install Phantom or Solflare, then reload this page.');
-    } else if (
-      error?.name === 'WalletConnectionError' ||
-      error?.name === 'WalletWindowBlockedError' ||
-      error?.name === 'WalletTimeoutError'
-    ) {
-      setWalletError(
-        `${walletName} did not connect. Open the ${walletName} extension, unlock it, and try again.`
-      );
-    } else if (
-      error?.message?.toLowerCase().includes('user rejected') ||
-      error?.message?.toLowerCase().includes('cancelled') ||
-      error?.message?.toLowerCase().includes('closed')
-    ) {
-      setWalletError(
-        `Connection request was cancelled in ${walletName}. Click "Connect wallet" to try again.`
-      );
-    } else {
-      setWalletError(
-        `${walletName} did not connect. Open the ${walletName} extension, unlock it, and try again.`
-      );
+  // Auto-dismiss wallet error after 4 seconds
+  useEffect(() => {
+    if (walletError) {
+      const timer = setTimeout(() => {
+        setWalletError(null);
+      }, 4000);
+      return () => clearTimeout(timer);
     }
+  }, [walletError]);
+
+  const handleError = useCallback((error: any, adapter?: any) => {
+    // Log for debugging without disrupting the user UI
+    console.warn('Solana wallet adapter event:', error?.name, error?.message, adapter?.name);
+
+    if (!error) return;
+
+    const msg = String(error?.message || error || '').toLowerCase();
+    const name = String(error?.name || '');
+    const code = error?.code ?? error?.error?.code;
+
+    // Filter out all transient / benign events: user cancellations, popup closures,
+    // account switching in Solflare, window blocked, timeouts, or disconnects
+    if (
+      code === 4001 ||
+      msg.includes('user rejected') ||
+      msg.includes('rejected') ||
+      msg.includes('cancelled') ||
+      msg.includes('canceled') ||
+      msg.includes('closed') ||
+      msg.includes('blocked') ||
+      msg.includes('unlocked') ||
+      msg.includes('already connected') ||
+      name === 'WalletWindowBlockedError' ||
+      name === 'WalletWindowClosedError' ||
+      name === 'WalletConnectionError' ||
+      name === 'WalletDisconnectionError' ||
+      name === 'WalletTimeoutError'
+    ) {
+      // Do not display error banners for normal user interactions or wallet switching
+      return;
+    }
+
+    if (name === 'WalletNotReadyError') {
+      setWalletError('No wallet found. Install Solflare or Phantom to connect.');
+      return;
+    }
+
+    // Only surface genuine unhandled errors
+    console.error('Unhandled wallet error:', error);
   }, []);
 
   return (

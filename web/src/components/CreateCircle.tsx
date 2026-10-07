@@ -18,6 +18,7 @@ import {
   Copy,
   Check,
   Loader2,
+  X,
 } from 'lucide-react';
 
 import type { TokenChoice } from '../types';
@@ -37,6 +38,7 @@ import {
   getExplorerUrl,
   translateProgramError,
   executeProgramMethod,
+  isUserCancellation,
 } from '../solthriftClient';
 
 interface CreateCircleProps {
@@ -45,8 +47,10 @@ interface CreateCircleProps {
 
 const PERIOD_OPTIONS = [
   { value: '20 seconds', label: '20 seconds (fast test)' },
+  { value: '30 seconds', label: '30 seconds' },
   { value: '1 minute', label: '1 minute (test)' },
   { value: '2 minutes', label: '2 minutes (test)' },
+  { value: '3 minutes', label: '3 minutes (demo)' },
   { value: '5 minutes', label: '5 minutes (test)' },
   { value: '10 minutes', label: '10 minutes (test)' },
   { value: '1 day', label: '1 day (demo)' },
@@ -59,6 +63,9 @@ const PERIOD_OPTIONS = [
 const GRACE_OPTIONS = [
   { value: '0 minutes', label: '0 minutes (instant)' },
   { value: '0 seconds', label: '0 seconds' },
+  { value: '5 seconds', label: '5 seconds (extra time)' },
+  { value: '10 seconds', label: '10 seconds (wait time)' },
+  { value: '30 seconds', label: '30 seconds (demo grace)' },
   { value: '1 minute', label: '1 minute (test)' },
   { value: '6 hours', label: '6 hours (demo)' },
   { value: '12 hours', label: '12 hours' },
@@ -72,13 +79,13 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
   const anchorWallet = useAnchorWallet();
   const { connected } = wallet;
 
-  // Form parameters
+  // Form parameters (defaulted to ⚡ 4-Member Demo Preset: 3m turn, 10s wait time, 5 USDC)
   const [token, setToken] = useState<TokenChoice>('USDC');
   const [members, setMembers] = useState<number>(4);
-  const [contribution, setContribution] = useState<number>(10);
+  const [contribution, setContribution] = useState<number>(5);
   const [depositPct, setDepositPct] = useState<number>(50);
-  const [period, setPeriod] = useState<string>('20 seconds');
-  const [grace, setGrace] = useState<string>('0 seconds');
+  const [period, setPeriod] = useState<string>('3 minutes');
+  const [grace, setGrace] = useState<string>('10 seconds');
 
   // Custom token mint input in case DEVNET_TOKEN_MINT is a placeholder
   const [customMintInput, setCustomMintInput] = useState<string>('');
@@ -90,6 +97,17 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
   const [txSignature, setTxSignature] = useState<string | null>(null);
   const [createdCircleAddress, setCreatedCircleAddress] = useState<string | null>(null);
   const [copiedAddress, setCopiedAddress] = useState<boolean>(false);
+
+  // Auto-dismiss transaction error after 5 seconds
+  useEffect(() => {
+    if (txError) {
+      const timer = setTimeout(() => {
+        setTxError(null);
+        setTxState((s) => (s === 'error' ? 'idle' : s));
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [txError]);
 
   // Determine active token mint
   const hasPlaceholderConfigMint = isPlaceholderMint(DEVNET_TOKEN_MINT);
@@ -161,10 +179,14 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
     switch (period) {
       case '20 seconds':
         return 20;
+      case '30 seconds':
+        return 30;
       case '1 minute':
         return 60;
       case '2 minutes':
         return 120;
+      case '3 minutes':
+        return 180;
       case '5 minutes':
         return 300;
       case '10 minutes':
@@ -190,6 +212,12 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
       case '0 seconds':
       case '0 minutes':
         return 0;
+      case '5 seconds':
+        return 5;
+      case '10 seconds':
+        return 10;
+      case '30 seconds':
+        return 30;
       case '1 minute':
         return 60;
       case '6 hours':
@@ -323,6 +351,10 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
       setTxState('success');
     } catch (err: any) {
       console.error('createCircle failed:', err);
+      if (isUserCancellation(err)) {
+        setTxState('idle');
+        return;
+      }
       setTxState('error');
       const translated = translateProgramError(err);
       setTxError({ message: translated.message, details: translated.details });
@@ -361,6 +393,57 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
           </h2>
 
           <form onSubmit={handleSubmit} noValidate className="create-circle-form">
+            {/* Demo Preset Panel */}
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                background: 'rgba(255, 255, 255, 0.04)',
+                backdropFilter: 'blur(20px)',
+                WebkitBackdropFilter: 'blur(20px)',
+                border: '1px solid var(--glass-border, rgba(255, 255, 255, 0.10))',
+                boxShadow: 'var(--glass-highlight, inset 0 1px 0 rgba(255, 255, 255, 0.08))',
+                borderRadius: '16px',
+                padding: '0.85rem 1.15rem',
+                marginBottom: '1.25rem',
+              }}
+            >
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                <span style={{ fontWeight: 600, color: '#ffffff', display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.9rem' }}>
+                  4-Member Demo Preset (&lt; 4-Min Pitch)
+                </span>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted, rgba(255, 255, 255, 0.60))' }}>
+                  4 members · 3m turn (time to switch wallets & pay) · 10s wait time.
+                </span>
+              </div>
+              <button
+                type="button"
+                className="btn-secondary"
+                style={{
+                  fontSize: '0.78rem',
+                  padding: '0.45rem 0.85rem',
+                  borderColor: 'rgba(255, 255, 255, 0.16)',
+                  color: '#ffffff',
+                  background: 'rgba(255, 255, 255, 0.06)',
+                  whiteSpace: 'nowrap',
+                  cursor: 'pointer',
+                  borderRadius: '10px',
+                  fontWeight: 500,
+                  transition: 'all 0.15s ease',
+                }}
+                onClick={() => {
+                  setMembers(4);
+                  setContribution(5);
+                  setDepositPct(50);
+                  setPeriod('3 minutes');
+                  setGrace('10 seconds');
+                }}
+              >
+                Apply Preset
+              </button>
+            </div>
+
             {/* Token Selector & Mint Warning */}
             <div className="form-group">
               <label htmlFor="token-select" className="form-label">
@@ -728,20 +811,34 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
 
               {/* Transaction Failure State */}
               {txState === 'error' && txError && (
-                <div className="alert-box error-alert" role="alert">
-                  <AlertTriangle size={18} />
-                  <div>
-                    <strong>Could not create circle</strong>
-                    <p style={{ marginTop: '0.25rem' }}>{txError.message}</p>
-                    {txError.details && (
-                      <details className="error-details" style={{ marginTop: '0.4rem', fontSize: '0.75rem' }}>
-                        <summary style={{ cursor: 'pointer' }}>Details</summary>
-                        <code style={{ display: 'block', marginTop: '0.25rem', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-                          {txError.details}
-                        </code>
-                      </details>
-                    )}
+                <div className="alert-box error-alert" role="alert" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
+                    <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: '2px' }} />
+                    <div>
+                      <strong>Could not create circle</strong>
+                      <p style={{ marginTop: '0.25rem' }}>{txError.message}</p>
+                      {txError.details && (
+                        <details className="error-details" style={{ marginTop: '0.4rem', fontSize: '0.75rem' }}>
+                          <summary style={{ cursor: 'pointer' }}>Details</summary>
+                          <code style={{ display: 'block', marginTop: '0.25rem', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                            {txError.details}
+                          </code>
+                        </details>
+                      )}
+                    </div>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTxError(null);
+                      setTxState('idle');
+                    }}
+                    className="icon-action-btn"
+                    aria-label="Dismiss error"
+                    style={{ width: '28px', height: '28px', minWidth: '28px' }}
+                  >
+                    <X size={14} />
+                  </button>
                 </div>
               )}
             </div>

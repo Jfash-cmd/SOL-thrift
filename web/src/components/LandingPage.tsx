@@ -335,8 +335,17 @@ export const LandingPage: FC<LandingPageProps> = ({
 
         {/* Error State */}
         {!loading && fetchError && (
-          <div className="alert-box error-alert" role="alert">
-            <p>{fetchError}</p>
+          <div className="alert-box error-alert" role="alert" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+            <p style={{ margin: 0 }}>{fetchError}</p>
+            <button
+              type="button"
+              onClick={() => setFetchError(null)}
+              className="icon-action-btn"
+              aria-label="Dismiss error"
+              style={{ width: '28px', height: '28px', minWidth: '28px' }}
+            >
+              <X size={14} />
+            </button>
           </div>
         )}
 

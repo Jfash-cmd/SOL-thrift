@@ -209,10 +209,10 @@ body {
 
 /* Subpage (Circle / Create) Placement: Smaller, dimmer, further to corner */
 .planet-backdrop-subpage .saturn-system {
-  right: -150px;
-  bottom: -190px;
-  transform: scale(0.64);
-  opacity: 0.32;
+  right: -130px;
+  bottom: -170px;
+  transform: scale(0.70);
+  opacity: 0.48;
 }
 
 /* Faint atmospheric haze around the planetary globe */
@@ -265,19 +265,155 @@ body {
   pointer-events: none;
 }
 
-/* Celestial scale: Tiny distant moon (Enceladus) */
-.saturn-moon {
+/* ============================================================================
+   3D MOONS ORBITING SATURN IN PERFECT CIRCULAR GREY ORBITS
+   - 3 concentric, pristine grey circular orbits (not bent, true circles)
+   - The moons are positioned directly on the circular perimeter and spin in a perfect circle
+   - 1. Titan (outer 720px circle, 12px silver/grey 3D sphere)
+   - 2. Enceladus (mid 580px circle, 9px cool icy-grey 3D sphere)
+   - 3. Mimas (inner 440px circle, 7px pearl-grey 3D sphere)
+   ============================================================================ */
+.saturn-orbit-track-container {
   position: absolute;
-  top: 26%;
-  left: 19%;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: #ffffff;
-  box-shadow: 0 0 6px 1px rgba(255, 255, 255, 0.9),
-              0 0 16px 3px rgba(207, 200, 187, 0.45);
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: rotate(-18deg);
   pointer-events: none;
+}
+
+/* Back Orbit Tracks: Clipped to upper half (y <= 50%), passes BEHIND the planet globe */
+.saturn-orbit-track-container.track-back {
   z-index: 1;
+  clip-path: polygon(-50% -50%, 150% -50%, 150% 50%, -50% 50%);
+}
+
+/* Front Orbit Tracks: Clipped to lower half (y >= 50%), passes IN FRONT of planet & rings */
+.saturn-orbit-track-container.track-front {
+  z-index: 4;
+  clip-path: polygon(-50% 50%, 150% 50%, 150% 150%, -50% 150%);
+}
+
+/* Pristine Grey Horizontal Orbit Tracks (unbent, true geometric circles tilted in 3D) */
+.saturn-orbit-track {
+  position: absolute;
+  border-radius: 50%;
+  transform: rotateX(72deg);
+  box-sizing: border-box;
+  pointer-events: none;
+  border: 1px solid rgba(220, 224, 230, 0.22);
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.06), inset 0 0 6px rgba(255, 255, 255, 0.03);
+}
+
+/* 1. Outer Track (Titan, 920px) */
+.saturn-orbit-track.track-outer {
+  width: 920px;
+  height: 920px;
+  border-color: rgba(225, 228, 232, 0.24);
+}
+
+/* 2. Mid Track (Enceladus, 800px) */
+.saturn-orbit-track.track-mid {
+  width: 800px;
+  height: 800px;
+  border-color: rgba(215, 220, 225, 0.22);
+}
+
+/* 3. Inner Track (Mimas, 660px) */
+.saturn-orbit-track.track-inner {
+  width: 660px;
+  height: 660px;
+  border-color: rgba(205, 210, 216, 0.20);
+}
+
+/* Orbit Spinners: Rotated horizontally along Saturn's equatorial axis */
+.saturn-moon-orbit-spinner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  border-radius: 50%;
+  pointer-events: none;
+  transform-style: preserve-3d;
+  will-change: transform, z-index;
+}
+
+.saturn-moon-orbit-spinner.spin-outer {
+  width: 920px;
+  height: 920px;
+  animation: saturnSpinOuter 52s linear infinite;
+}
+
+.saturn-moon-orbit-spinner.spin-mid {
+  width: 800px;
+  height: 800px;
+  animation: saturnSpinMid 36s linear infinite;
+  animation-delay: -14s;
+}
+
+.saturn-moon-orbit-spinner.spin-inner {
+  width: 660px;
+  height: 660px;
+  animation: saturnSpinInner 24s linear infinite;
+  animation-delay: -17s;
+}
+
+/* Moon position placed precisely on the perimeter of the orbit circle */
+.saturn-moon-pos {
+  position: absolute;
+  top: 50%;
+  left: 100%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.saturn-moon-orbit-spinner.spin-outer .saturn-moon-pos {
+  animation: saturnMoonCounterOuter 52s linear infinite;
+}
+
+.saturn-moon-orbit-spinner.spin-mid .saturn-moon-pos {
+  animation: saturnMoonCounterMid 36s linear infinite;
+  animation-delay: -14s;
+}
+
+.saturn-moon-orbit-spinner.spin-inner .saturn-moon-pos {
+  animation: saturnMoonCounterInner 24s linear infinite;
+  animation-delay: -17s;
+}
+
+/* 3D Volumetric Spherical Moons */
+.saturn-moon-3d {
+  border-radius: 50%;
+  pointer-events: none;
+  flex-shrink: 0;
+}
+
+/* 1. Titan (11px, soft warm grey 3D sphere) */
+.saturn-moon-3d.moon-titan {
+  width: 11px;
+  height: 11px;
+  background: radial-gradient(circle at 32% 28%, #ffffff 0%, #d8d4cd 35%, #888277 70%, #22201d 100%);
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.65), inset -2px -2px 3px rgba(0, 0, 0, 0.85);
+}
+
+/* 2. Enceladus (8.5px, brilliant icy-silver 3D sphere) */
+.saturn-moon-3d.moon-enceladus {
+  width: 8.5px;
+  height: 8.5px;
+  background: radial-gradient(circle at 30% 28%, #ffffff 0%, #e2e8f0 35%, #94a3b8 70%, #1e293b 100%);
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.85), inset -1.5px -1.5px 3px rgba(0, 0, 0, 0.85);
+}
+
+/* 3. Mimas (6.5px, pearl grey 3D sphere) */
+.saturn-moon-3d.moon-mimas {
+  width: 6.5px;
+  height: 6.5px;
+  background: radial-gradient(circle at 35% 30%, #f8fafc 0%, #cbd5e1 40%, #64748b 75%, #0f172a 100%);
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.55), inset -1px -1px 2px rgba(0, 0, 0, 0.85);
 }
 
 /* Ring Surface with Concentric Bands, Cassini Division, Encke Division & F Ring
@@ -581,11 +717,112 @@ body {
   }
 }
 
+/* Horizontal 3D Orbital Spin: Titan (Outer) */
+@keyframes saturnSpinOuter {
+  0% {
+    transform: translate(-50%, -50%) rotate(-18deg) rotateX(72deg) rotate(0deg);
+    z-index: 4;
+  }
+  49.9% {
+    transform: translate(-50%, -50%) rotate(-18deg) rotateX(72deg) rotate(179.9deg);
+    z-index: 4;
+  }
+  50% {
+    transform: translate(-50%, -50%) rotate(-18deg) rotateX(72deg) rotate(180deg);
+    z-index: 1;
+  }
+  99.9% {
+    transform: translate(-50%, -50%) rotate(-18deg) rotateX(72deg) rotate(359.9deg);
+    z-index: 1;
+  }
+  100% {
+    transform: translate(-50%, -50%) rotate(-18deg) rotateX(72deg) rotate(360deg);
+    z-index: 4;
+  }
+}
+
+@keyframes saturnMoonCounterOuter {
+  from {
+    transform: translate(-50%, -50%) rotate(0deg) rotateX(-72deg) rotate(18deg);
+  }
+  to {
+    transform: translate(-50%, -50%) rotate(-360deg) rotateX(-72deg) rotate(18deg);
+  }
+}
+
+/* Horizontal 3D Orbital Spin: Enceladus (Mid) */
+@keyframes saturnSpinMid {
+  0% {
+    transform: translate(-50%, -50%) rotate(-18deg) rotateX(72deg) rotate(0deg);
+    z-index: 4;
+  }
+  49.9% {
+    transform: translate(-50%, -50%) rotate(-18deg) rotateX(72deg) rotate(179.9deg);
+    z-index: 4;
+  }
+  50% {
+    transform: translate(-50%, -50%) rotate(-18deg) rotateX(72deg) rotate(180deg);
+    z-index: 1;
+  }
+  99.9% {
+    transform: translate(-50%, -50%) rotate(-18deg) rotateX(72deg) rotate(359.9deg);
+    z-index: 1;
+  }
+  100% {
+    transform: translate(-50%, -50%) rotate(-18deg) rotateX(72deg) rotate(360deg);
+    z-index: 4;
+  }
+}
+
+@keyframes saturnMoonCounterMid {
+  from {
+    transform: translate(-50%, -50%) rotate(0deg) rotateX(-72deg) rotate(18deg);
+  }
+  to {
+    transform: translate(-50%, -50%) rotate(-360deg) rotateX(-72deg) rotate(18deg);
+  }
+}
+
+/* Horizontal 3D Orbital Spin: Mimas (Inner) */
+@keyframes saturnSpinInner {
+  0% {
+    transform: translate(-50%, -50%) rotate(-18deg) rotateX(72deg) rotate(0deg);
+    z-index: 4;
+  }
+  49.9% {
+    transform: translate(-50%, -50%) rotate(-18deg) rotateX(72deg) rotate(179.9deg);
+    z-index: 4;
+  }
+  50% {
+    transform: translate(-50%, -50%) rotate(-18deg) rotateX(72deg) rotate(180deg);
+    z-index: 1;
+  }
+  99.9% {
+    transform: translate(-50%, -50%) rotate(-18deg) rotateX(72deg) rotate(359.9deg);
+    z-index: 1;
+  }
+  100% {
+    transform: translate(-50%, -50%) rotate(-18deg) rotateX(72deg) rotate(360deg);
+    z-index: 4;
+  }
+}
+
+@keyframes saturnMoonCounterInner {
+  from {
+    transform: translate(-50%, -50%) rotate(0deg) rotateX(-72deg) rotate(18deg);
+  }
+  to {
+    transform: translate(-50%, -50%) rotate(-360deg) rotateX(-72deg) rotate(18deg);
+  }
+}
+
 /* Under 640px width: freeze animation, static planet and ring, reduce blur to 12px */
 @media (max-width: 640px) {
   .saturn-ring-surface,
   .saturn-clouds-strip,
-  .saturn-clouds-fine {
+  .saturn-clouds-fine,
+  .saturn-moon-orbit-spinner,
+  .saturn-moon-pos {
     animation: none !important;
   }
 
@@ -623,7 +860,9 @@ body {
   .saturn-ring-surface,
   .saturn-clouds-strip,
   .saturn-clouds-fine,
-  .saturn-system {
+  .saturn-system,
+  .saturn-moon-orbit-spinner,
+  .saturn-moon-3d {
     animation: none !important;
     transition: none !important;
   }
@@ -1343,58 +1582,242 @@ a:hover {
   flex-shrink: 0;
 }
 
-/* Connected menu: small glass panel with three rows */
-.wallet-adapter-dropdown-list {
-  position: absolute !important;
-  top: calc(100% + 8px) !important;
-  right: 0 !important;
-  background: var(--glass-bg, rgba(255, 255, 255, 0.05)) !important;
-  backdrop-filter: blur(24px) saturate(120%) !important;
-  -webkit-backdrop-filter: blur(24px) saturate(120%) !important;
-  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.10)) !important;
-  box-shadow: var(--glass-highlight, inset 0 1px 0 rgba(255, 255, 255, 0.08)), 0 18px 44px rgba(0, 0, 0, 0.7) !important;
-  border-radius: var(--radius-card, 20px) !important;
-  padding: 0.65rem !important;
-  min-width: 220px !important;
-  list-style: none !important;
-  z-index: 200 !important;
-  margin: 0 !important;
+/* ============================================================================
+   CONNECTED WALLET MODAL DIALOG
+   Styled to look EXACTLY like the "Connect a wallet" modal in the user screenshot:
+   - Fixed full-screen dark dimmed overlay (dims & blurs underlying cards)
+   - Centered solid deep charcoal modal card (28px radius, 100% opaque, no bleed-through)
+   - Circular glass close button top-right (44px)
+   - Capsule action rows (56px tall, 20px radius) with solid backgrounds and pill badges
+   ============================================================================ */
+.wallet-connected-modal-root {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 10000 !important;
   display: flex !important;
-  flex-direction: column !important;
-  gap: 0.45rem !important;
+  align-items: center !important;
+  justify-content: center !important;
+  overflow-y: auto !important;
+  background: transparent !important;
+  animation: walletModalFadeIn 0.18s ease-out forwards !important;
 }
 
-/* Three rows: "Copy address", "Change wallet", "Disconnect" with same row styling as the picker */
-.wallet-adapter-dropdown-list-item {
+@keyframes walletModalFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Full-viewport backdrop overlay - completely dims the underlying page & panels */
+.wallet-connected-modal-overlay {
+  position: fixed !important;
+  inset: 0 !important;
+  background: rgba(0, 0, 0, 0.72) !important;
+  backdrop-filter: blur(10px) !important;
+  -webkit-backdrop-filter: blur(10px) !important;
+  z-index: 10001 !important;
+}
+
+.wallet-connected-modal-container {
+  position: relative !important;
+  z-index: 10005 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 100% !important;
+  min-height: 100% !important;
+  padding: 1.5rem !important;
+  box-sizing: border-box !important;
+  margin: 0 !important;
+}
+
+/* Modal Card: 100% solid, fully opaque deep charcoal (#0e1110) - ZERO bleed-through! */
+.wallet-connected-modal-card {
+  position: relative !important;
+  background: #0e1110 !important;
+  border: 1px solid rgba(255, 255, 255, 0.14) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 28px 70px rgba(0, 0, 0, 0.95), 0 10px 28px rgba(0, 0, 0, 0.85) !important;
+  border-radius: var(--radius-panel, 28px) !important;
+  max-width: 420px !important;
+  width: 100% !important;
+  padding: 2.25rem 1.75rem 1.75rem !important;
   color: #ffffff !important;
   font-family: var(--font-sans) !important;
-  font-size: 0.92rem !important;
-  font-weight: 500 !important;
-  height: 50px !important;
-  min-height: 50px !important;
-  border-radius: 16px !important;
-  background: rgba(255, 255, 255, 0.04) !important;
-  border: 1px solid rgba(255, 255, 255, 0.06) !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
-  padding: 0 1.25rem !important;
+  box-sizing: border-box !important;
+  animation: walletCardPopIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
+}
+
+@keyframes walletCardPopIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Top-right circular close button - matches screenshot close button */
+.wallet-connected-modal-close {
+  position: absolute !important;
+  top: 1.25rem !important;
+  right: 1.25rem !important;
+  width: 42px !important;
+  height: 42px !important;
+  min-width: 42px !important;
+  min-height: 42px !important;
+  border-radius: 50% !important;
+  background: rgba(255, 255, 255, 0.07) !important;
+  border: 1px solid rgba(255, 255, 255, 0.14) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
   cursor: pointer !important;
+  color: #ffffff !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  outline: none !important;
+  transition: background 0.15s ease, transform 0.15s ease, border-color 0.15s ease !important;
+  z-index: 10 !important;
+}
+
+.wallet-connected-modal-close:hover {
+  background: rgba(255, 255, 255, 0.16) !important;
+  border-color: rgba(255, 255, 255, 0.28) !important;
+  transform: scale(1.06) !important;
+}
+
+.wallet-connected-modal-close:focus-visible {
+  outline: 2px solid #ffffff !important;
+  outline-offset: 2px !important;
+}
+
+/* Header: Title + Subtitle */
+.wallet-dropdown-modal-header {
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: flex-start !important;
+  margin-bottom: 1.5rem !important;
+  padding-right: 2.75rem !important; /* reserve space for close button */
+}
+
+.wallet-dropdown-modal-title {
+  font-family: var(--font-sans) !important;
+  font-size: 1.35rem !important;
+  font-weight: 600 !important;
+  line-height: 1.25 !important;
+  letter-spacing: -0.025em !important;
+  color: #ffffff !important;
+  margin: 0 0 0.35rem 0 !important;
+}
+
+.wallet-dropdown-modal-subtitle {
+  font-family: var(--font-sans) !important;
+  font-size: 0.85rem !important;
+  font-weight: 400 !important;
+  line-height: 1.45 !important;
+  color: var(--text-muted, rgba(255, 255, 255, 0.65)) !important;
+  margin: 0 !important;
+}
+
+/* Action Rows Container */
+.wallet-dropdown-modal-list {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 0.65rem !important;
+  width: 100% !important;
+}
+
+/* Each row is a solid capsule card identical to the Solflare/Phantom row in screenshot */
+.wallet-dropdown-modal-row {
+  width: 100% !important;
+  height: 56px !important;
+  min-height: 56px !important;
+  border-radius: var(--radius-card, 20px) !important;
+  background: #161918 !important; /* solid opaque background - 100% opaque */
+  border: 1px solid rgba(255, 255, 255, 0.09) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+  padding: 0 1.25rem !important;
   display: flex !important;
   align-items: center !important;
   justify-content: flex-start !important;
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease !important;
+  gap: 0.85rem !important;
+  color: #ffffff !important;
+  font-family: var(--font-sans) !important;
+  font-size: 0.95rem !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+  transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, transform 0.15s ease !important;
   outline: none !important;
+  box-sizing: border-box !important;
 }
 
-.wallet-adapter-dropdown-list-item:hover {
-  background: rgba(255, 255, 255, 0.09) !important;
-  border-color: rgba(255, 255, 255, 0.18) !important;
+.wallet-dropdown-modal-row:hover {
+  background: #212624 !important;
+  border-color: rgba(255, 255, 255, 0.22) !important;
   color: #ffffff !important;
 }
 
-.wallet-adapter-dropdown-list-item:focus-visible {
+.wallet-dropdown-modal-row:focus-visible {
   outline: 2px solid #ffffff !important;
   outline-offset: 2px !important;
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.35) !important;
+}
+
+.wallet-dropdown-row-icon {
+  width: 28px !important;
+  height: 28px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex-shrink: 0 !important;
+  color: #ffffff !important;
+}
+
+.wallet-dropdown-row-name {
+  font-size: 0.93rem !important;
+  font-weight: 500 !important;
+  color: #ffffff !important;
+}
+
+/* Capsule pill badge on the right (identical to the "Installed" pill in screenshot) */
+.wallet-dropdown-row-pill {
+  margin-left: auto !important;
+  font-size: 0.74rem !important;
+  font-weight: 500 !important;
+  color: rgba(255, 255, 255, 0.88) !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  border: 1px solid rgba(255, 255, 255, 0.18) !important;
+  border-radius: var(--radius-pill, 9999px) !important;
+  padding: 3px 10px !important;
+  letter-spacing: 0.02em !important;
+  line-height: 1.4 !important;
+  font-family: var(--font-mono) !important;
+}
+
+/* Disconnect action: subtle red accent on hover */
+.wallet-dropdown-modal-row-disconnect:hover {
+  background: rgba(239, 68, 68, 0.16) !important;
+  border-color: rgba(239, 68, 68, 0.38) !important;
+}
+
+.wallet-dropdown-modal-row-disconnect:hover .wallet-dropdown-row-icon,
+.wallet-dropdown-modal-row-disconnect:hover .wallet-dropdown-row-name,
+.wallet-dropdown-modal-row-disconnect:hover .wallet-dropdown-row-pill {
+  color: #f87171 !important;
+  border-color: rgba(239, 68, 68, 0.38) !important;
+}
+
+/* Fallback for any legacy dropdown list */
+.wallet-adapter-dropdown-list {
+  background: #0e1110 !important;
+  border: 1px solid rgba(255, 255, 255, 0.14) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 28px 70px rgba(0, 0, 0, 0.95) !important;
+  border-radius: 24px !important;
 }
 
 /* ============================================================================
@@ -4064,6 +4487,150 @@ a.btn-secondary,
     transition: none !important;
     filter: none !important;
   }
+}
+
+/* ============================================================================
+   DEMO MODE & AUTOPILOT STYLES
+   ============================================================================ */
+
+.demo-mode-banner {
+  background: rgba(14, 165, 233, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 8px 24px rgba(14, 165, 233, 0.15);
+  border-radius: var(--radius-card, 20px);
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  position: relative;
+  overflow: hidden;
+}
+
+.demo-mode-banner::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 100%;
+  background: #38bdf8;
+  box-shadow: 0 0 10px #38bdf8;
+}
+
+.demo-mode-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.85rem;
+  border-radius: var(--radius-pill, 9999px);
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-head);
+}
+
+.demo-mode-toggle-btn.active {
+  background: rgba(56, 189, 248, 0.18);
+  border-color: rgba(56, 189, 248, 0.55);
+  color: #38bdf8;
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.25);
+}
+
+.demo-funding-card {
+  background: var(--glass-bg);
+  backdrop-filter: blur(24px) saturate(120%);
+  -webkit-backdrop-filter: blur(24px) saturate(120%);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-highlight);
+  border-radius: var(--radius-card, 20px);
+  padding: 1.25rem 1.4rem;
+  margin-bottom: 1.5rem;
+}
+
+.demo-funding-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+  font-size: 0.85rem;
+}
+
+.demo-funding-table th {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  color: var(--text-muted);
+  font-weight: 500;
+  border-bottom: 1px solid var(--glass-border-subtle);
+}
+
+.demo-funding-table td {
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid var(--glass-border-subtle);
+  color: var(--text-head);
+}
+
+.demo-input-num {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  color: #ffffff;
+  padding: 0.35rem 0.55rem;
+  font-size: 0.85rem;
+  width: 75px;
+  outline: none;
+  font-family: var(--font-mono);
+}
+
+.demo-input-num:focus {
+  border-color: #38bdf8;
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.3);
+}
+
+.autopilot-card {
+  background: rgba(16, 24, 39, 0.85);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-card, 20px);
+  padding: 1.35rem 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.autopilot-step-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.65rem 0.85rem;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--glass-border-subtle);
+  margin-bottom: 0.5rem;
+  font-size: 0.84rem;
+  gap: 0.75rem;
+}
+
+.autopilot-step-item.active {
+  background: rgba(56, 189, 248, 0.08);
+  border-color: rgba(56, 189, 248, 0.4);
+}
+
+.autopilot-step-item.waiting {
+  background: rgba(245, 158, 11, 0.08);
+  border-color: rgba(245, 158, 11, 0.4);
+}
+
+.autopilot-step-item.done {
+  background: rgba(16, 185, 129, 0.06);
+  border-color: rgba(16, 185, 129, 0.25);
+}
+
+.autopilot-step-item.failed {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.35);
 }
 
 
