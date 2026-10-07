@@ -1,0 +1,10 @@
+services:
+  - type: static
+    name: solthrift
+    rootDir: web
+    buildCommand: npm run build
+    publishPath: dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
