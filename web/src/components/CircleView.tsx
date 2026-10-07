@@ -102,8 +102,30 @@ export const CircleView: FC<CircleViewProps> = ({
   }, [circleAddress]);
 
 
-  // Per-(wallet, circle, action) in-flight lock to guarantee exactly-once execution (Requirement 5)
-  const actionLockRef = useRef<Record<string, boolean>>({});
+  const [joinFeedback, setJoinFeedback] = useState<string | null>(null);
+
+  // Auto-dismiss join feedback after 8 seconds (Requirement 2)
+  useEffect(() => {
+    if (joinFeedback) {
+      const timer = setTimeout(() => {
+        setJoinFeedback(null);
+      }, 8000);
+      return () => clearTimeout(timer);
+    }
+  }, [joinFeedback]);
+
+  // Per-(wallet, circle, action) in-flight lock with timestamp for 30-second expiry (Requirement 3)
+  const actionLockRef = useRef<Record<string, number>>({});
+
+  const isActionLocked = useCallback((lockKey: string): boolean => {
+    const timestamp = actionLockRef.current[lockKey];
+    if (!timestamp) return false;
+    if (Date.now() - timestamp > 30000) {
+      delete actionLockRef.current[lockKey];
+      return false;
+    }
+    return true;
+  }, []);
 
   // Seamless wallet switch shortcut (Requirement 6):
   // Cleanly disconnects the adapter, resets selection, and opens the wallet picker modal in one smooth sequence
@@ -893,6 +915,7 @@ export const CircleView: FC<CircleViewProps> = ({
       setWalletLoadError(null);
       clearWalletError();
       actionLockRef.current = {};
+      setJoinFeedback(null);
 
       if (!newPk) {
         setUserTokenBalance(null);
@@ -1053,7 +1076,9 @@ export const CircleView: FC<CircleViewProps> = ({
     if (walletDebounceTimerRef.current) {
       clearTimeout(walletDebounceTimerRef.current);
     }
+    actionLockRef.current = {};
     setWalletLoadError(null);
+    setJoinFeedback(null);
 
     walletDebounceTimerRef.current = setTimeout(() => {
       resetForWallet(publicKey);
@@ -1068,6 +1093,8 @@ export const CircleView: FC<CircleViewProps> = ({
 
   const handleRetryWalletLoad = useCallback(() => {
     setWalletLoadError(null);
+    setJoinFeedback(null);
+    actionLockRef.current = {};
     resetForWallet(publicKey);
   }, [publicKey, resetForWallet]);
 
@@ -1573,57 +1600,151 @@ export const CircleView: FC<CircleViewProps> = ({
    */
   const handleJoinCircle = async (customSignerWallet?: any): Promise<string | undefined> => {
     const currentReqId = walletRequestIdRef.current;
-    const activeSigner = customSignerWallet || (connected && publicKey ? wallet : null);
-    if (!activeSigner || !activeSigner.publicKey) {
-      console.warn('[handleJoinCircle Suppressed]: No active wallet connected.');
+
+    // Detect if customSignerWallet is a genuine custom wallet keypair or an accidental event (Requirement 5)
+    const isCustomWallet = Boolean(
+      customSignerWallet &&
+      typeof customSignerWallet === 'object' &&
+      'publicKey' in customSignerWallet &&
+      !('nativeEvent' in customSignerWallet) &&
+      customSignerWallet.publicKey
+    );
+
+    const activeSigner = isCustomWallet ? customSignerWallet : (connected && publicKey ? wallet : null);
+    const activePk: PublicKey | null = activeSigner?.publicKey ?? (publicKey || null);
+
+    const lockKey = activePk && circle ? `${activePk.toBase58()}:${circle.address.toBase58()}:joinCircle` : '';
+    const lockTimestamp = lockKey ? actionLockRef.current[lockKey] : null;
+    const isCurrentlyLocked = lockKey ? isActionLocked(lockKey) : false;
+
+    // 1. REPRODUCE AND LOG at the very top of the join handler (Requirement 1)
+    console.log(`[handleJoinCircle START ${new Date().toISOString()}]`, {
+      connectedPublicKey: activePk ? activePk.toBase58() : 'none',
+      circleStatus: circle?.status ?? 'no-circle',
+      isMember: Boolean(userMember),
+      inFlightLockState: isCurrentlyLocked
+        ? `locked_since_${new Date(lockTimestamp!).toISOString()}`
+        : 'unlocked',
+      tokenBalance: userTokenBalance,
+      isBalanceLoading,
+      isWalletDataLoading,
+      customSignerPassed: Boolean(customSignerWallet),
+      isCustomWallet,
+    });
+
+    // 2. Early-return checks with VISIBLE messages (Requirement 2 & 6)
+    if (!activeSigner || !activePk) {
+      const msg = 'Please connect your wallet first to join.';
+      console.log(`[handleJoinCircle Early-Return]: ${msg}`);
+      setJoinFeedback(msg);
       return;
     }
-    const activePk: PublicKey = activeSigner.publicKey;
-    if (!circle) return;
 
-    // Per-(wallet, circle, action) in-flight lock (Requirement 5)
-    const lockKey = `${activePk.toBase58()}:${circle.address.toBase58()}:joinCircle`;
-    if (actionLockRef.current[lockKey]) {
+    if (!circle) {
+      const msg = 'Circle data is not loaded yet. Try again in a moment.';
+      console.log(`[handleJoinCircle Early-Return]: ${msg}`);
+      setJoinFeedback(msg);
+      return;
+    }
+
+    // Check in-flight lock with 30s expiry (Requirement 3)
+    if (isCurrentlyLocked) {
+      const msg = 'Another action is still running for this wallet. Wait a moment, or reload.';
       console.warn(`[Action Deduplicated] joinCircle is already in-flight for ${activePk.toBase58().slice(0, 4)}...`);
+      console.log(`[handleJoinCircle Early-Return]: ${msg}`);
+      setJoinFeedback(msg);
       return;
     }
-    actionLockRef.current[lockKey] = true;
 
-    if (isCircleFull) {
-      delete actionLockRef.current[lockKey];
-      setTxError({ message: 'This circle is full.' });
+    // Checking wallet data or balance (Requirement 2 & 6)
+    if (isWalletDataLoading || isBalanceLoading) {
+      const msg = 'Checking your wallet. Try again in a moment.';
+      console.log(`[handleJoinCircle Early-Return]: ${msg}`);
+      setJoinFeedback(msg);
+      return;
+    }
+
+    if (circle.status !== 'Open') {
+      const msg = 'This circle is not open for new members.';
+      console.log(`[handleJoinCircle Early-Return]: ${msg}`);
+      setJoinFeedback(msg);
+      setTxError({ message: msg });
+      return;
+    }
+
+    if (circle.currentMemberCount >= circle.membersTarget || isCircleFull) {
+      const msg = 'This circle is full.';
+      console.log(`[handleJoinCircle Early-Return]: ${msg}`);
+      setJoinFeedback(msg);
+      setTxError({ message: msg });
       return;
     }
 
     if (isPlaceholderMint(circle.tokenMint)) {
-      delete actionLockRef.current[lockKey];
-      setTxError({
-        message: 'Circle token is not configured on the test network.',
-      });
+      const msg = 'Circle token is not configured on the test network.';
+      console.log(`[handleJoinCircle Early-Return]: ${msg}`);
+      setJoinFeedback(msg);
+      setTxError({ message: msg });
       return;
     }
 
+    // Check token balance against required deposit (Requirement 2)
+    const requiredDepositBN = calculateSlotDepositBN(
+      nextSlot,
+      circle.membersTarget,
+      circle.contribution,
+      circle.depositPct
+    );
+    const requiredDepositNum = Number(formatTokenAmount(requiredDepositBN, tokenDecimals));
+
+    if (userTokenBalance !== null && userTokenBalance < requiredDepositNum) {
+      const msg = `You need at least ${requiredDepositNum} ${tokenSymbol} to join and you have ${userTokenBalance}.`;
+      console.log(`[handleJoinCircle Early-Return]: ${msg}`);
+      setJoinFeedback(msg);
+      return;
+    }
+
+    // Check if CURRENT wallet is already an on-chain member (Requirement 4)
+    const [memberPda] = getMemberPda(circle.address, activePk);
+    let existingMemberAccount: any = null;
+    try {
+      const program = getSolthriftProgram(connection, null);
+      existingMemberAccount = await program.account.member.fetchNullable(memberPda);
+    } catch {
+      try {
+        const info = await connection.getAccountInfo(memberPda);
+        if (info !== null) {
+          existingMemberAccount = { slot: 'confirmed' };
+        }
+      } catch {}
+    }
+
+    if (existingMemberAccount) {
+      const slotNum = existingMemberAccount.slot;
+      const msg =
+        slotNum && typeof slotNum === 'number'
+          ? `You already joined this circle (seat ${slotNum}).`
+          : 'You already joined this circle.';
+      console.log(`[handleJoinCircle Early-Return]: ${msg}`);
+      setJoinFeedback(msg);
+      if (currentReqId === walletRequestIdRef.current) {
+        setTxSuccess({
+          message: `${msg} Your seat is confirmed.`,
+        });
+        await loadCircleData(circle.address.toBase58(), true, currentReqId);
+      }
+      return;
+    }
+
+    // Acquire lock with current timestamp (Requirement 3)
+    actionLockRef.current[lockKey] = Date.now();
     setTxPending(true);
     setTxPendingMsg('Joining circle...');
     setTxError(null);
     setTxSuccess(null);
+    setJoinFeedback(null);
 
     try {
-      const [memberPda] = getMemberPda(circle.address, activePk);
-
-      // On-chain check before sending: if this wallet is already a member, do not send joinCircle
-      // Show "You already joined this circle" as the success state (Requirement 5)
-      const existingMemberInfo = await connection.getAccountInfo(memberPda);
-      if (existingMemberInfo !== null) {
-        if (currentReqId === walletRequestIdRef.current) {
-          setTxSuccess({
-            message: 'You already joined this circle. Your seat is confirmed.',
-          });
-          await loadCircleData(circle.address.toBase58(), true, currentReqId);
-        }
-        return;
-      }
-
       const preInstructions: TransactionInstruction[] = [];
       const { ata: memberAta, instruction: createAtaIx } = await getOrCreateAtaInstruction(
         connection,
@@ -1678,6 +1799,7 @@ export const CircleView: FC<CircleViewProps> = ({
     } catch (err: any) {
       handleActionError(err, currentReqId, 'joinCircle');
     } finally {
+      // Release in-flight lock in finally block on every path (Requirement 3)
       delete actionLockRef.current[lockKey];
       if (currentReqId === walletRequestIdRef.current) {
         setTxPending(false);
@@ -1734,11 +1856,11 @@ export const CircleView: FC<CircleViewProps> = ({
 
     // Per-(wallet, circle, action) in-flight lock (Requirement 5)
     const lockKey = `${activePk.toBase58()}:${circle.address.toBase58()}:contribute:${targetMember.slot}`;
-    if (actionLockRef.current[lockKey]) {
+    if (isActionLocked(lockKey)) {
       console.warn(`[Action Deduplicated] contribute is already in-flight for Seat ${targetMember.slot}`);
       return;
     }
-    actionLockRef.current[lockKey] = true;
+    actionLockRef.current[lockKey] = Date.now();
 
     setTxPending(true);
     setTxPendingMsg(`Paying turn for Seat ${targetMember.slot}...`);
@@ -1862,11 +1984,11 @@ export const CircleView: FC<CircleViewProps> = ({
 
     // Per-(wallet, circle, action) in-flight lock (Requirement 5)
     const lockKey = `${callerPk.toBase58()}:${circle.address.toBase58()}:payout:${circle.currentPeriod}`;
-    if (actionLockRef.current[lockKey]) {
+    if (isActionLocked(lockKey)) {
       console.warn(`[Action Deduplicated] payout is already in-flight for turn ${circle.currentPeriod}`);
       return;
     }
-    actionLockRef.current[lockKey] = true;
+    actionLockRef.current[lockKey] = Date.now();
 
     setTxPending(true);
     setTxPendingMsg(`Paying out to ${payoutRecipientDisplay}...`);
@@ -1982,11 +2104,11 @@ export const CircleView: FC<CircleViewProps> = ({
 
     // Per-(wallet, circle, action) in-flight lock (Requirement 5)
     const lockKey = `${callerPk.toBase58()}:${circle.address.toBase58()}:removeDefaulter:${target.slot}`;
-    if (actionLockRef.current[lockKey]) {
+    if (isActionLocked(lockKey)) {
       console.warn(`[Action Deduplicated] removeDefaulter is already in-flight for Seat ${target.slot}`);
       return;
     }
-    actionLockRef.current[lockKey] = true;
+    actionLockRef.current[lockKey] = Date.now();
 
     setTxPending(true);
     setTxPendingMsg('Removing late member...');
@@ -2099,11 +2221,11 @@ export const CircleView: FC<CircleViewProps> = ({
 
     // Per-(wallet, circle, action) in-flight lock (Requirement 5)
     const lockKey = `${activePk.toBase58()}:${circle.address.toBase58()}:flagLeaving:${memberToFlag.slot}`;
-    if (actionLockRef.current[lockKey]) {
+    if (isActionLocked(lockKey)) {
       console.warn(`[Action Deduplicated] flagLeaving is already in-flight for Seat ${memberToFlag.slot}`);
       return;
     }
-    actionLockRef.current[lockKey] = true;
+    actionLockRef.current[lockKey] = Date.now();
 
     setTxPending(true);
     setTxPendingMsg('Flagging leaving...');
@@ -2199,11 +2321,11 @@ export const CircleView: FC<CircleViewProps> = ({
 
     // Per-(wallet, circle, action) in-flight lock (Requirement 5)
     const lockKey = `${callerPk.toBase58()}:${circle.address.toBase58()}:exitMember:${memberToExit.slot}`;
-    if (actionLockRef.current[lockKey]) {
+    if (isActionLocked(lockKey)) {
       console.warn(`[Action Deduplicated] exitMember is already in-flight for Seat ${memberToExit.slot}`);
       return;
     }
-    actionLockRef.current[lockKey] = true;
+    actionLockRef.current[lockKey] = Date.now();
 
     setTxPending(true);
     setTxPendingMsg('Exiting circle...');
@@ -2303,11 +2425,11 @@ export const CircleView: FC<CircleViewProps> = ({
 
     // Per-(wallet, circle, action) in-flight lock (Requirement 5)
     const lockKey = `${publicKey.toBase58()}:${circle.address.toBase58()}:claimRefund`;
-    if (actionLockRef.current[lockKey]) {
+    if (isActionLocked(lockKey)) {
       console.warn('[Action Deduplicated] claimRefund is already in-flight');
       return;
     }
-    actionLockRef.current[lockKey] = true;
+    actionLockRef.current[lockKey] = Date.now();
 
     setTxPending(true);
     setTxPendingMsg('Claiming contribution refund...');
@@ -2404,11 +2526,11 @@ export const CircleView: FC<CircleViewProps> = ({
 
     // Per-(wallet, circle, action) in-flight lock (Requirement 5)
     const lockKey = `${publicKey.toBase58()}:${circle.address.toBase58()}:claimForfeit`;
-    if (actionLockRef.current[lockKey]) {
+    if (isActionLocked(lockKey)) {
       console.warn('[Action Deduplicated] claimForfeit is already in-flight');
       return;
     }
-    actionLockRef.current[lockKey] = true;
+    actionLockRef.current[lockKey] = Date.now();
 
     setTxPending(true);
     setTxPendingMsg('Claiming forfeit compensation...');
@@ -3570,10 +3692,10 @@ export const CircleView: FC<CircleViewProps> = ({
                               type="button"
                               className="btn-primary"
                               style={{ width: '100%', padding: '0.45rem', fontSize: '0.78rem', minHeight: '34px', height: 'auto' }}
-                              disabled={txPending || isWalletBusy}
-                              onClick={handleJoinCircle}
+                              disabled={txPending || isBalanceLoading || isWalletDataLoading}
+                              onClick={() => handleJoinCircle()}
                             >
-                              {isWalletBusy ? (
+                              {isWalletDataLoading ? (
                                 <>
                                   <Loader2 size={13} className="spinner-icon" />
                                   Loading this wallet...
@@ -3947,7 +4069,7 @@ export const CircleView: FC<CircleViewProps> = ({
                         className="btn-primary"
                         style={{ width: '100%' }}
                         disabled={txPending || isBalanceLoading || isWalletDataLoading}
-                        onClick={handleJoinCircle}
+                        onClick={() => handleJoinCircle()}
                       >
                         {txPending ? (
                           <>
@@ -3958,6 +4080,51 @@ export const CircleView: FC<CircleViewProps> = ({
                           'Join circle'
                         )}
                       </button>
+
+                      {/* Visible feedback message for early returns or clear disabled reason (Requirements 2 & 6) */}
+                      {joinFeedback ? (
+                        <div
+                          className="join-feedback-msg"
+                          style={{
+                            marginTop: '0.65rem',
+                            padding: '0.5rem 0.75rem',
+                            borderRadius: '8px',
+                            background: 'rgba(251, 191, 36, 0.08)',
+                            border: '1px solid rgba(251, 191, 36, 0.25)',
+                            color: '#fef3c7',
+                            fontSize: '0.8rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.5rem',
+                            lineHeight: 1.4,
+                          }}
+                        >
+                          <AlertTriangle size={15} style={{ color: '#fbbf24', flexShrink: 0 }} />
+                          <span>{joinFeedback}</span>
+                        </div>
+                      ) : (txPending || isBalanceLoading || isWalletDataLoading) ? (
+                        <div
+                          className="join-disabled-reason"
+                          style={{
+                            marginTop: '0.45rem',
+                            fontSize: '0.76rem',
+                            color: 'var(--text-muted)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.35rem',
+                            paddingLeft: '0.25rem',
+                          }}
+                        >
+                          <Loader2 size={12} className="spinner-icon" />
+                          <span>
+                            {txPending
+                              ? 'Transaction in progress...'
+                              : isWalletDataLoading
+                              ? 'Checking your wallet...'
+                              : 'Checking wallet balance...'}
+                          </span>
+                        </div>
+                      ) : null}
                     </div>
                   )}
                 </div>
