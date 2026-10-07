@@ -120,7 +120,7 @@ export const Reveal: FC<RevealProps> = ({
   return (
     <ComponentTag
       ref={elementRef}
-      className={`reveal-wrapper ${isRevealed ? 'is-revealed' : 'is-hidden'} ${className}`.trim()}
+      className={`reveal-wrapper ${isRevealed ? 'is-revealed' : 'is-hidden'} ${animationCompleted ? 'is-completed' : ''} ${className}`.trim()}
       style={inlineStyles}
     >
       {children}

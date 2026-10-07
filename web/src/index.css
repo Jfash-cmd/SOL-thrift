@@ -99,13 +99,16 @@ html:not(.fonts-loading) body {
   --radius-card: 20px;
   --radius-pill: 9999px;
 
-  /* Text Colors (Near-Monochrome, minimum 4.5:1 contrast against #0b0d0c, muted text >= 55% white) */
-  --text-head: #ffffff;
-  --text-body: rgba(255, 255, 255, 0.82);
-  --text-muted: rgba(255, 255, 255, 0.60);
-  --text-faint: rgba(255, 255, 255, 0.35);
+  /* Page Background Gradient */
+  --page: linear-gradient(180deg, #0b0d0c 0%, #060807 100%);
 
-  /* Primary Button (Pure White) */
+  /* Text Colors (Near-Monochrome, minimum 4.5:1 contrast against #0b0d0c, minimum 0.55 for readable text) */
+  --text-head: #ffffff;
+  --text-body: rgba(255, 255, 255, 0.70);
+  --text-muted: rgba(255, 255, 255, 0.55);
+  --text-faint: rgba(255, 255, 255, 0.40);
+
+  /* Primary Button (Pure White with #0b0d0c text) */
   --btn-primary-bg: #ffffff;
   --btn-primary-text: #0b0d0c;
   --btn-primary-hover: #e5e5e5;
@@ -123,9 +126,9 @@ html:not(.fonts-loading) body {
   --status-removed-bg: rgba(239, 68, 68, 0.12);
   --status-removed-border: rgba(239, 68, 68, 0.28);
 
-  --status-recipient: #d8b4fe;
-  --status-recipient-bg: rgba(192, 132, 252, 0.14);
-  --status-recipient-border: rgba(192, 132, 252, 0.35);
+  --status-recipient: rgba(255, 255, 255, 0.90);
+  --status-recipient-bg: rgba(255, 255, 255, 0.08);
+  --status-recipient-border: rgba(255, 255, 255, 0.25);
 }
 
 /* ============================================================================
@@ -170,7 +173,7 @@ body {
   inset: 0;
   pointer-events: none;
   overflow: hidden;
-  z-index: 0;
+  z-index: -1;
 }
 
 /* Tiny static celestial stars in the backdrop */
@@ -847,9 +850,17 @@ body {
   .loading-view-card,
   .empty-view-card,
   .preview-card,
+  .circle-ring-card,
+  .circle-summary-card,
   .landing-left-panel,
   .landing-circle-card,
-  .site-header {
+  .demo-cockpit-card,
+  .autopilot-card,
+  .demo-funding-card,
+  .demo-mode-banner,
+  .member-card,
+  .site-header,
+  .wallet-connected-modal-card {
     backdrop-filter: blur(12px) saturate(120%) !important;
     -webkit-backdrop-filter: blur(12px) saturate(120%) !important;
   }
@@ -1634,12 +1645,14 @@ a:hover {
   margin: 0 !important;
 }
 
-/* Modal Card: 100% solid, fully opaque deep charcoal (#0e1110) - ZERO bleed-through! */
+/* Modal Card: glass with a stronger fill, rgba(14,15,17,0.82) plus blur (24px) */
 .wallet-connected-modal-card {
   position: relative !important;
-  background: #0e1110 !important;
-  border: 1px solid rgba(255, 255, 255, 0.14) !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 28px 70px rgba(0, 0, 0, 0.95), 0 10px 28px rgba(0, 0, 0, 0.85) !important;
+  background: rgba(14, 15, 17, 0.82) !important;
+  backdrop-filter: blur(24px) saturate(120%) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(120%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 28px 70px rgba(0, 0, 0, 0.95), 0 10px 28px rgba(0, 0, 0, 0.85) !important;
   border-radius: var(--radius-panel, 28px) !important;
   max-width: 420px !important;
   width: 100% !important;
@@ -1733,13 +1746,15 @@ a:hover {
   width: 100% !important;
 }
 
-/* Each row is a solid capsule card identical to the Solflare/Phantom row in screenshot */
+/* Each row is a glass capsule card */
 .wallet-dropdown-modal-row {
   width: 100% !important;
   height: 56px !important;
   min-height: 56px !important;
   border-radius: var(--radius-card, 20px) !important;
-  background: #161918 !important; /* solid opaque background - 100% opaque */
+  background: rgba(255, 255, 255, 0.05) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
   border: 1px solid rgba(255, 255, 255, 0.09) !important;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
   padding: 0 1.25rem !important;
@@ -1758,8 +1773,8 @@ a:hover {
 }
 
 .wallet-dropdown-modal-row:hover {
-  background: #212624 !important;
-  border-color: rgba(255, 255, 255, 0.22) !important;
+  background: rgba(255, 255, 255, 0.09) !important;
+  border-color: rgba(255, 255, 255, 0.20) !important;
   color: #ffffff !important;
 }
 
@@ -1814,8 +1829,10 @@ a:hover {
 
 /* Fallback for any legacy dropdown list */
 .wallet-adapter-dropdown-list {
-  background: #0e1110 !important;
-  border: 1px solid rgba(255, 255, 255, 0.14) !important;
+  background: rgba(14, 15, 17, 0.82) !important;
+  backdrop-filter: blur(24px) saturate(120%) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(120%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 28px 70px rgba(0, 0, 0, 0.95) !important;
   border-radius: 24px !important;
 }
@@ -1846,7 +1863,16 @@ a:hover {
 .circle-search-card,
 .loading-view-card,
 .empty-view-card,
-.preview-card {
+.preview-card,
+.circle-ring-card,
+.circle-summary-card,
+.landing-left-panel,
+.landing-circle-card,
+.demo-cockpit-card,
+.autopilot-card,
+.demo-funding-card,
+.demo-mode-banner,
+.member-card {
   background: var(--glass-bg);
   backdrop-filter: blur(24px) saturate(120%);
   -webkit-backdrop-filter: blur(24px) saturate(120%);
@@ -4443,24 +4469,30 @@ a.btn-secondary,
    No layout shift, smooth scroll-triggered entrance
    ============================================================================ */
 .reveal-wrapper {
-  /* Animate opacity, transform, and optical blur filter */
-  transition-property: opacity, transform, filter;
-  transition-duration: 700ms;
+  /* Animate opacity and transform only - no filter on ancestors of glass panels */
+  transition-property: opacity, transform;
+  transition-duration: 650ms;
   transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
-  will-change: opacity, transform, filter;
+  will-change: opacity, transform;
   min-width: 0;
 }
 
 .reveal-wrapper.is-hidden {
   opacity: 0;
-  transform: translateY(28px) scale(0.985);
-  filter: blur(4px);
+  transform: translateY(20px);
 }
 
 .reveal-wrapper.is-revealed {
   opacity: 1;
-  transform: translateY(0) scale(1);
-  filter: blur(0px);
+  transform: translateY(0);
+}
+
+.reveal-wrapper.is-completed {
+  will-change: auto !important;
+  transform: none !important;
+  opacity: 1 !important;
+  filter: none !important;
+  transition: none !important;
 }
 
 /* Ensure grid items reserve space and maintain full cell height without layout shift */
@@ -4497,8 +4529,8 @@ a.btn-secondary,
   background: var(--glass-bg);
   backdrop-filter: blur(24px) saturate(120%);
   -webkit-backdrop-filter: blur(24px) saturate(120%);
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 0 24px rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-highlight);
   border-radius: var(--radius-card, 20px);
   padding: 1rem 1.25rem;
   margin-bottom: 1.5rem;
@@ -4546,8 +4578,8 @@ a.btn-secondary,
   background: var(--glass-bg);
   backdrop-filter: blur(24px) saturate(120%);
   -webkit-backdrop-filter: blur(24px) saturate(120%);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  box-shadow: var(--glass-highlight), 0 0 24px rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-highlight);
   border-radius: var(--radius-card, 20px);
   padding: 1.25rem 1.4rem;
   margin-bottom: 1.5rem;
@@ -4595,8 +4627,8 @@ a.btn-secondary,
   background: var(--glass-bg);
   backdrop-filter: blur(24px) saturate(120%);
   -webkit-backdrop-filter: blur(24px) saturate(120%);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  box-shadow: var(--glass-highlight), 0 0 24px rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-highlight);
   border-radius: var(--radius-card, 20px);
   padding: 1.35rem 1.5rem;
   margin-bottom: 1.5rem;
