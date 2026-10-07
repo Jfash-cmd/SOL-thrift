@@ -79,7 +79,7 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
   const anchorWallet = useAnchorWallet();
   const { connected } = wallet;
 
-  // Form parameters (defaulted to ⚡ 4-Member Demo Preset: 3m turn, 10s wait time, 5 USDC)
+  // Form parameters (defaulted to 4-Member Demo Preset: 3m turn, 10s wait time, 5 USDC)
   const [token, setToken] = useState<TokenChoice>('USDC');
   const [members, setMembers] = useState<number>(4);
   const [contribution, setContribution] = useState<number>(5);
@@ -411,10 +411,10 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
             >
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
                 <span style={{ fontWeight: 600, color: '#ffffff', display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.9rem' }}>
-                  4-Member Demo Preset (&lt; 4-Min Pitch)
+                  4-Member Demo Preset (3-min turns, 10s grace)
                 </span>
                 <span style={{ fontSize: '0.8rem', color: 'var(--text-muted, rgba(255, 255, 255, 0.60))' }}>
-                  4 members · 3m turn (time to switch wallets & pay) · 10s wait time.
+                  4 members · 3m turn (time to switch test accounts & pay) · 10s grace window.
                 </span>
               </div>
               <button
@@ -657,8 +657,8 @@ export const CreateCircle: FC<CreateCircleProps> = ({ onCreated }) => {
                   style={{
                     color:
                       userTokenBalance !== null && userTokenBalance >= creatorRequiredDeposit
-                        ? '#10b981'
-                        : '#f59e0b',
+                        ? '#ffffff'
+                        : 'var(--text-muted)',
                   }}
                 >
                   Your balance:{' '}

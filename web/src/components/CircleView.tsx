@@ -32,7 +32,6 @@ import {
   Sparkles,
   Play,
   Pause,
-  Square,
 } from 'lucide-react';
 
 import type { RealCircleData, RealMemberData } from '../types';
@@ -60,6 +59,7 @@ import { isPlaceholderMint } from '../config';
 import { CircleRing } from './CircleRing';
 import { SolanaLogo3D } from './SolanaLogo3D';
 import { Reveal } from './Reveal';
+import { useWalletError } from './WalletContextProvider';
 
 interface CircleViewProps {
   circleAddress?: string | null;
@@ -74,29 +74,40 @@ export const CircleView: FC<CircleViewProps> = ({
 }) => {
   const { connection } = useConnection();
   const wallet = useWallet();
-  const { select, connected, publicKey } = wallet;
+  const { select, disconnect, connecting, connected, publicKey, wallet: currentWallet } = wallet;
   const { setVisible } = useWalletModal();
+  const { clearWalletError } = useWalletError();
 
   // Selected seat for cockpit interaction & seamless wallet switching
   const [selectedSeat, setSelectedSeat] = useState<number>(1);
 
-  // Seamless wallet switch prompt without requiring manual disconnect
-  const handlePromptSwitchWallet = useCallback(async (slotNum: number) => {
-    setSelectedSeat(slotNum);
+  // Request ID and cancellation tracking for wallet switching (Requirement 2)
+  const walletRequestIdRef = useRef<number>(0);
+  const activeAbortControllerRef = useRef<AbortController | null>(null);
+  const walletDebounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const [isWalletDataLoading, setIsWalletDataLoading] = useState<boolean>(false);
+
+  // Per-(wallet, circle, action) in-flight lock to guarantee exactly-once execution (Requirement 5)
+  const actionLockRef = useRef<Record<string, boolean>>({});
+
+  // Seamless wallet switch shortcut (Requirement 6):
+  // Cleanly disconnects the adapter, resets selection, and opens the wallet picker modal in one smooth sequence
+  const handlePromptSwitchWallet = useCallback(async (slotNum?: number) => {
+    if (typeof slotNum === 'number') {
+      setSelectedSeat(slotNum);
+    }
+    console.log(`[WalletEvent ${new Date().toISOString()}] handlePromptSwitchWallet called for seat:`, slotNum);
     try {
-      const anyWin = window as any;
-      if (anyWin.solflare && typeof anyWin.solflare.connect === 'function') {
-        try {
-          await anyWin.solflare.connect({ onlyIfTrusted: false });
-          return;
-        } catch {}
-      }
-    } catch {}
+      await disconnect();
+    } catch (err) {
+      console.warn('[Wallet Switch Shortcut] disconnect note:', err);
+    }
     try {
       select(null as any);
     } catch {}
+    clearWalletError();
     setVisible(true);
-  }, [select, setVisible]);
+  }, [disconnect, select, setVisible, clearWalletError]);
 
   // Search input & loaded circle state
   const [inputAddress, setInputAddress] = useState<string>(circleAddress || '');
@@ -115,7 +126,7 @@ export const CircleView: FC<CircleViewProps> = ({
   // Transaction execution state
   const [txPending, setTxPending] = useState<boolean>(false);
   const [txPendingMsg, setTxPendingMsg] = useState<string | null>(null);
-  const [txSuccess, setTxSuccess] = useState<{ signature: string; message: string } | null>(null);
+  const [txSuccess, setTxSuccess] = useState<{ signature?: string; message: string } | null>(null);
   const [txError, setTxError] = useState<{ message: string; details?: string } | null>(null);
 
   // Auto-dismiss transaction error after 5 seconds
@@ -143,14 +154,11 @@ export const CircleView: FC<CircleViewProps> = ({
     setTxError(null);
   }, [publicKey]);
 
-  // Auto-Payout and Auto-Remove (defaulted to false so no unsolicited background popups trigger)
+  // Auto-Payout and Auto-Remove demo toggles
   const [autoPayoutEnabled, setAutoPayoutEnabled] = useState<boolean>(false);
-  const autoPayoutTriggeredRef = useRef<boolean>(false);
-
   const [autoRemoveEnabled, setAutoRemoveEnabled] = useState<boolean>(false);
-  const autoRemoveTriggeredRef = useRef<boolean>(false);
 
-  // ⚡ Devnet Demo Mode State (Requirement 1: Available ONLY when RPC endpoint is devnet)
+  // Devnet Demo Mode State (Requirement 1: Available ONLY when RPC endpoint is devnet)
   const isDevnet = connection.rpcEndpoint.toLowerCase().includes('devnet');
   const [demoMode, setDemoMode] = useState<boolean>(false);
 
@@ -401,7 +409,7 @@ export const CircleView: FC<CircleViewProps> = ({
       setAutopilotRunning(false);
       setTxSuccess({
         signature: payoutSig2 || '',
-        message: '🎉 Demo walkthrough autopilot finished successfully!',
+        message: 'Demo walkthrough autopilot finished successfully!',
       });
     } catch (err: any) {
       console.error('Autopilot Turn 2 error:', err);
@@ -579,7 +587,7 @@ export const CircleView: FC<CircleViewProps> = ({
     }
   };
 
-  // ⚡ Multi-Wallet Session Tracker for Demo (tracks and displays all 4 wallets simultaneously)
+  // Multi-Wallet Session Tracker for Demo (tracks and displays all 4 wallets simultaneously)
   const [knownWallets, setKnownWallets] = useState<Record<number, string>>(() => {
     try {
       const saved = localStorage.getItem(`solthrift_demo_wallets_${circleAddress || ''}`);
@@ -663,14 +671,20 @@ export const CircleView: FC<CircleViewProps> = ({
   /**
    * Fetch real on-chain Circle and Member data from Devnet
    * @param silent If true, updates state silently without triggering full-screen loading skeleton
+   * @param reqId Optional request id to drop late responses from previous wallet requests
    */
   const loadCircleData = useCallback(
-    async (addressToLoad: string, silent: boolean = false) => {
+    async (addressToLoad: string, silent: boolean = false, reqId?: number) => {
+      if (reqId !== undefined && reqId !== walletRequestIdRef.current) {
+        console.warn(`[loadCircleData] Dropping outdated circle fetch (reqId: ${reqId}, current: ${walletRequestIdRef.current})`);
+        return null;
+      }
+
       const trimmed = extractSolanaAddress(addressToLoad);
       if (!trimmed) {
         setCircle(null);
         setFetchError(null);
-        return;
+        return null;
       }
 
       let pubkey: PublicKey;
@@ -678,7 +692,7 @@ export const CircleView: FC<CircleViewProps> = ({
         pubkey = new PublicKey(trimmed);
       } catch {
         setFetchError(`The address "${trimmed}" is not a valid Solana address.`);
-        return;
+        return null;
       }
 
       if (!silent) {
@@ -691,7 +705,7 @@ export const CircleView: FC<CircleViewProps> = ({
       }
 
       try {
-        const program = getSolthriftProgram(connection, wallet as any);
+        const program = getSolthriftProgram(connection, null);
         const circleAccount = await program.account.circle.fetch(pubkey);
 
         // Read mint decimals at runtime from mint account
@@ -770,9 +784,18 @@ export const CircleView: FC<CircleViewProps> = ({
           loadedMembers,
         };
 
+        if (reqId !== undefined && reqId !== walletRequestIdRef.current) {
+          console.warn(`[loadCircleData] Dropping late result for outdated wallet request (reqId: ${reqId}, current: ${walletRequestIdRef.current})`);
+          return null;
+        }
+
         setCircle(circleData);
         return circleData;
       } catch (err: any) {
+        if (reqId !== undefined && reqId !== walletRequestIdRef.current) {
+          console.warn(`[loadCircleData] Dropped error for outdated wallet request (reqId: ${reqId}):`, err);
+          return null;
+        }
         console.error('Failed to load on-chain circle:', err);
         if (!silent) {
           setCircle((existing) => {
@@ -796,8 +819,137 @@ export const CircleView: FC<CircleViewProps> = ({
         }
       }
     },
-    [connection, wallet]
+    [connection]
   );
+
+  // Requirement 2: Single resetForWallet handler treating a switch as one atomic event
+  const resetForWallet = useCallback(
+    async (newPk: PublicKey | null) => {
+      const reqId = ++walletRequestIdRef.current;
+      const pkStr = newPk ? newPk.toBase58() : 'none';
+      console.log(`[WalletSwitch ${new Date().toISOString()}] resetForWallet starting for: ${pkStr} (reqId: ${reqId})`);
+
+      // 1. Cancel/abort in-flight lookups or transactions for previous wallet
+      if (activeAbortControllerRef.current) {
+        activeAbortControllerRef.current.abort();
+      }
+      activeAbortControllerRef.current = new AbortController();
+
+      // 2. Clear pending flags, error banners, and success messages
+      setTxPending(false);
+      setTxPendingMsg(null);
+      setTxSuccess(null);
+      setTxError(null);
+      clearWalletError();
+      actionLockRef.current = {};
+
+      // 3. Mark wallet data loading while reloading fresh on-chain data
+      setIsWalletDataLoading(true);
+
+      try {
+        if (circleAddress) {
+          await loadCircleData(circleAddress, true, reqId);
+        }
+        if (demoMode && demoKeypairs) {
+          await fetchDemoBalances();
+        }
+      } catch (err) {
+        console.warn(`[WalletSwitch] Data reload warning for reqId ${reqId}:`, err);
+      } finally {
+        if (reqId === walletRequestIdRef.current) {
+          setIsWalletDataLoading(false);
+          console.log(`[WalletSwitch ${new Date().toISOString()}] resetForWallet completed for: ${pkStr}`);
+        }
+      }
+    },
+    [circleAddress, loadCircleData, clearWalletError, demoMode, demoKeypairs, fetchDemoBalances]
+  );
+
+  // Requirement 1 & 2: Debounced wallet switch effect (300ms)
+  useEffect(() => {
+    const pkStr = publicKey ? publicKey.toBase58() : 'disconnected';
+    console.log(
+      `[WalletEvent ${new Date().toISOString()}] state change: publicKey=${pkStr}, connected=${connected}, connecting=${connecting}`
+    );
+
+    setIsWalletDataLoading(true);
+    setTxError(null);
+    clearWalletError();
+
+    if (walletDebounceTimerRef.current) {
+      clearTimeout(walletDebounceTimerRef.current);
+    }
+
+    walletDebounceTimerRef.current = setTimeout(() => {
+      resetForWallet(publicKey);
+    }, 300);
+
+    return () => {
+      if (walletDebounceTimerRef.current) {
+        clearTimeout(walletDebounceTimerRef.current);
+      }
+    };
+  }, [publicKey, connected, connecting, resetForWallet, clearWalletError]);
+
+  // Requirement 1 & 6: Listen to adapter connect, disconnect, and extension accountChanged events
+  useEffect(() => {
+    const adapter = currentWallet?.adapter;
+    if (!adapter) return;
+
+    const onConnect = (pubkey?: PublicKey) => {
+      const pk = pubkey || adapter.publicKey;
+      console.log(`[WalletEvent ${new Date().toISOString()}] adapter.connect:`, pk?.toBase58() || 'unknown');
+    };
+    const onDisconnect = () => {
+      console.log(`[WalletEvent ${new Date().toISOString()}] adapter.disconnect`);
+    };
+    const onError = (err: any) => {
+      console.log(`[WalletEvent ${new Date().toISOString()}] adapter.error:`, err?.name, err?.message, err);
+    };
+    const onAccountChange = (newPk?: any) => {
+      const pkStr = newPk?.toBase58
+        ? newPk.toBase58()
+        : typeof newPk === 'string'
+        ? newPk
+        : adapter.publicKey?.toBase58();
+      console.log(`[WalletEvent ${new Date().toISOString()}] adapter.accountChange:`, pkStr);
+      setIsWalletDataLoading(true);
+      setTxError(null);
+      clearWalletError();
+      if (walletDebounceTimerRef.current) {
+        clearTimeout(walletDebounceTimerRef.current);
+      }
+      walletDebounceTimerRef.current = setTimeout(() => {
+        resetForWallet(adapter.publicKey);
+      }, 300);
+    };
+
+    adapter.on('connect', onConnect);
+    adapter.on('disconnect', onDisconnect);
+    adapter.on('error', onError);
+    (adapter as any).on?.('accountChanged', onAccountChange);
+
+    const win = window as any;
+    if (win.solana?.on) {
+      win.solana.on('accountChanged', onAccountChange);
+    }
+    if (win.solflare?.on) {
+      win.solflare.on('accountChanged', onAccountChange);
+    }
+
+    return () => {
+      adapter.off?.('connect', onConnect);
+      adapter.off?.('disconnect', onDisconnect);
+      adapter.off?.('error', onError);
+      (adapter as any).off?.('accountChanged', onAccountChange);
+      if (win.solana?.off) {
+        win.solana.off('accountChanged', onAccountChange);
+      }
+      if (win.solflare?.off) {
+        win.solflare.off('accountChanged', onAccountChange);
+      }
+    };
+  }, [currentWallet?.adapter, resetForWallet, clearWalletError]);
 
   // Sync with prop when URL changes
   useEffect(() => {
@@ -882,6 +1034,12 @@ export const CircleView: FC<CircleViewProps> = ({
     : '0';
   const formattedContribution = circle
     ? formatTokenAmount(circle.contribution, tokenDecimals)
+    : '0';
+  const formattedPotAmount = circle
+    ? formatTokenAmount(
+        circle.contribution.mul(new BN(circle.expectedContributors || circle.membersTarget)),
+        tokenDecimals
+      )
     : '0';
   const formattedReserve = circle?.reserve
     ? formatTokenAmount(circle.reserve, tokenDecimals)
@@ -1174,25 +1332,100 @@ export const CircleView: FC<CircleViewProps> = ({
     claimForfeitReason = `Ready to claim forfeit share of ${formattedForfeitAmount} ${tokenSymbol}.`;
   }
 
+  // Wallet readiness flag: disables action buttons while switching or loading member data (Requirement 4)
+  const isWalletBusy = connecting || isWalletDataLoading;
+
+  /**
+   * Centralized error handler for user-initiated actions.
+   * Suppresses benign wallet switch/disconnect and cancellation errors (with console.warn),
+   * while surfacing real on-chain failures to txError. (Requirement 3)
+   */
+  const handleActionError = (err: any, currentReqId?: number, actionName?: string) => {
+    // 1. If request belonged to a previous wallet or session, drop it silently with a warning
+    if (currentReqId !== undefined && currentReqId !== walletRequestIdRef.current) {
+      console.warn(
+        `[Action Error Suppressed - Previous Wallet Request]: '${actionName || 'Action'}' dropped because wallet switched (reqId ${currentReqId} vs current ${walletRequestIdRef.current}).`,
+        err
+      );
+      return;
+    }
+
+    // 2. Suppress user cancellations / modal closes
+    if (isUserCancellation(err)) {
+      console.warn(
+        `[Action Error Suppressed - User Cancellation]: '${actionName || 'Action'}' cancelled or closed by user.`,
+        err
+      );
+      return;
+    }
+
+    const errName = String(err?.name || '');
+    const errMsg = String(err?.message || err || '').toLowerCase();
+    const code = err?.code ?? err?.error?.code ?? (err as any)?.cause?.code;
+
+    // 3. User rejected code 4001
+    if (code === 4001 || errMsg.includes('4001')) {
+      console.warn(
+        `[Action Error Suppressed - Code 4001]: '${actionName || 'Action'}' rejected by user approval prompt.`,
+        err
+      );
+      return;
+    }
+
+    // 4. Wallet disconnect, not connected, or account changed
+    if (
+      errName === 'WalletNotConnectedError' ||
+      errName === 'WalletDisconnectedError' ||
+      errMsg.includes('wallet not connected') ||
+      errMsg.includes('wallet disconnected') ||
+      errMsg.includes('not connected') ||
+      errMsg.includes('disconnected') ||
+      errMsg.includes('account changed') ||
+      errMsg.includes('active account changed')
+    ) {
+      console.warn(
+        `[Action Error Suppressed - Wallet State Change]: '${actionName || 'Action'}' suppressed due to wallet disconnect/switch (${errName || errMsg}).`,
+        err
+      );
+      return;
+    }
+
+    // 5. Real failure: log and display with details
+    console.error(`[Action Failure] ${actionName || 'Action'} failed:`, err);
+    const translated = translateProgramError(err);
+    setTxError({ message: translated.message, details: translated.details });
+  };
+
   /**
    * Section 5, Instruction 2: Join Circle
+   * Exactly-once execution with in-flight lock, pre-send check, and debounced switch support
    */
   const handleJoinCircle = async (customSignerWallet?: any): Promise<string | undefined> => {
+    const currentReqId = walletRequestIdRef.current;
     const activeSigner = customSignerWallet || (connected && publicKey ? wallet : null);
     if (!activeSigner || !activeSigner.publicKey) {
-      setTxError({ message: 'Connect your wallet to continue.' });
+      console.warn('[handleJoinCircle Suppressed]: No active wallet connected.');
       return;
     }
     const activePk: PublicKey = activeSigner.publicKey;
-
     if (!circle) return;
 
+    // Per-(wallet, circle, action) in-flight lock (Requirement 5)
+    const lockKey = `${activePk.toBase58()}:${circle.address.toBase58()}:joinCircle`;
+    if (actionLockRef.current[lockKey]) {
+      console.warn(`[Action Deduplicated] joinCircle is already in-flight for ${activePk.toBase58().slice(0, 4)}...`);
+      return;
+    }
+    actionLockRef.current[lockKey] = true;
+
     if (isCircleFull) {
+      delete actionLockRef.current[lockKey];
       setTxError({ message: 'This circle is full.' });
       return;
     }
 
     if (isPlaceholderMint(circle.tokenMint)) {
+      delete actionLockRef.current[lockKey];
       setTxError({
         message: 'Circle token is not configured on the test network.',
       });
@@ -1205,6 +1438,21 @@ export const CircleView: FC<CircleViewProps> = ({
     setTxSuccess(null);
 
     try {
+      const [memberPda] = getMemberPda(circle.address, activePk);
+
+      // On-chain check before sending: if this wallet is already a member, do not send joinCircle
+      // Show "You already joined this circle" as the success state (Requirement 5)
+      const existingMemberInfo = await connection.getAccountInfo(memberPda);
+      if (existingMemberInfo !== null) {
+        if (currentReqId === walletRequestIdRef.current) {
+          setTxSuccess({
+            message: 'You already joined this circle. Your seat is confirmed.',
+          });
+          await loadCircleData(circle.address.toBase58(), true, currentReqId);
+        }
+        return;
+      }
+
       const preInstructions: TransactionInstruction[] = [];
       const { ata: memberAta, instruction: createAtaIx } = await getOrCreateAtaInstruction(
         connection,
@@ -1216,7 +1464,6 @@ export const CircleView: FC<CircleViewProps> = ({
         preInstructions.push(createAtaIx);
       }
 
-      const [memberPda] = getMemberPda(circle.address, activePk);
       const program = getSolthriftProgram(connection, activeSigner as any);
 
       const method = program.methods
@@ -1237,28 +1484,34 @@ export const CircleView: FC<CircleViewProps> = ({
         wallet: activeSigner,
         method,
         preInstructions: preInstructions.length > 0 ? preInstructions : undefined,
-        onStatusChange: (status) => setTxPendingMsg(status),
-      });
-      setTxSuccess({
-        signature: sig,
-        message: `You joined the circle. Seat ${nextSlot} is locked.`,
+        onStatusChange: (status) => {
+          if (currentReqId === walletRequestIdRef.current) {
+            setTxPendingMsg(status);
+          }
+        },
       });
 
-      // Refetch latest circle and member accounts from chain
-      await loadCircleData(circle.address.toBase58(), true);
-      if (demoMode) {
-        fetchDemoBalances();
+      if (currentReqId === walletRequestIdRef.current) {
+        setTxSuccess({
+          signature: sig,
+          message: `You joined the circle. Seat ${nextSlot} is locked.`,
+        });
+
+        // Refetch latest circle and member accounts from chain
+        await loadCircleData(circle.address.toBase58(), true, currentReqId);
+        if (demoMode) {
+          fetchDemoBalances();
+        }
       }
       return sig;
     } catch (err: any) {
-      console.error('joinCircle failed:', err);
-      if (isUserCancellation(err)) return;
-      const translated = translateProgramError(err);
-      setTxError({ message: translated.message, details: translated.details });
-      throw err;
+      handleActionError(err, currentReqId, 'joinCircle');
     } finally {
-      setTxPending(false);
-      setTxPendingMsg(null);
+      delete actionLockRef.current[lockKey];
+      if (currentReqId === walletRequestIdRef.current) {
+        setTxPending(false);
+        setTxPendingMsg(null);
+      }
     }
   };
 
@@ -1271,6 +1524,7 @@ export const CircleView: FC<CircleViewProps> = ({
     customSignerWallet?: any
   ): Promise<string | undefined> => {
     if (!circle) return;
+    const currentReqId = walletRequestIdRef.current;
 
     const targetMember: RealMemberData | null =
       specificMember && typeof specificMember === 'object' && 'slot' in specificMember
@@ -1307,12 +1561,38 @@ export const CircleView: FC<CircleViewProps> = ({
       return;
     }
 
+    // Per-(wallet, circle, action) in-flight lock (Requirement 5)
+    const lockKey = `${activePk.toBase58()}:${circle.address.toBase58()}:contribute:${targetMember.slot}`;
+    if (actionLockRef.current[lockKey]) {
+      console.warn(`[Action Deduplicated] contribute is already in-flight for Seat ${targetMember.slot}`);
+      return;
+    }
+    actionLockRef.current[lockKey] = true;
+
     setTxPending(true);
     setTxPendingMsg(`Paying turn for Seat ${targetMember.slot}...`);
     setTxError(null);
     setTxSuccess(null);
 
     try {
+      const program = getSolthriftProgram(connection, activeSigner as any);
+
+      // On-chain check: if the member already paid this turn, do not send contribute (Requirement 5)
+      try {
+        const onChainMem = await program.account.member.fetchNullable(targetMember.memberPda);
+        if (onChainMem && (onChainMem as any).lastContributedPeriod >= circle.currentPeriod) {
+          if (currentReqId === walletRequestIdRef.current) {
+            setTxSuccess({
+              message: `Seat ${targetMember.slot} has already contributed for Turn ${circle.currentPeriod}.`,
+            });
+            await loadCircleData(circle.address.toBase58(), true, currentReqId);
+          }
+          return;
+        }
+      } catch (checkErr) {
+        console.warn('[handleContribute] Could not pre-check member account:', checkErr);
+      }
+
       const preInstructions: TransactionInstruction[] = [];
       const { ata: memberAta, instruction: createAtaIx } = await getOrCreateAtaInstruction(
         connection,
@@ -1324,7 +1604,6 @@ export const CircleView: FC<CircleViewProps> = ({
         preInstructions.push(createAtaIx);
       }
 
-      const program = getSolthriftProgram(connection, activeSigner as any);
       const method = program.methods
         .contribute()
         .accounts({
@@ -1342,37 +1621,43 @@ export const CircleView: FC<CircleViewProps> = ({
         wallet: activeSigner,
         method,
         preInstructions: preInstructions.length > 0 ? preInstructions : undefined,
-        onStatusChange: (status) => setTxPendingMsg(status),
-      });
-      setTxSuccess({
-        signature: sig,
-        message: `Paid turn for Seat ${targetMember.slot}.`,
+        onStatusChange: (status) => {
+          if (currentReqId === walletRequestIdRef.current) {
+            setTxPendingMsg(status);
+          }
+        },
       });
 
-      await loadCircleData(circle.address.toBase58(), true);
-      if (demoMode) {
-        fetchDemoBalances();
+      if (currentReqId === walletRequestIdRef.current) {
+        setTxSuccess({
+          signature: sig,
+          message: `Paid turn for Seat ${targetMember.slot}.`,
+        });
+
+        await loadCircleData(circle.address.toBase58(), true, currentReqId);
+        if (demoMode) {
+          fetchDemoBalances();
+        }
       }
       return sig;
     } catch (err: any) {
-      console.error('contribute failed:', err);
-      if (isUserCancellation(err)) return;
-      const translated = translateProgramError(err);
-      setTxError({ message: translated.message, details: translated.details });
-      throw err;
+      handleActionError(err, currentReqId, `contribute(Seat ${targetMember.slot})`);
     } finally {
-      setTxPending(false);
-      setTxPendingMsg(null);
+      delete actionLockRef.current[lockKey];
+      if (currentReqId === walletRequestIdRef.current) {
+        setTxPending(false);
+        setTxPendingMsg(null);
+      }
     }
   };
 
   /**
    * Section 5, Instruction 4: Payout
    * Callable by anyone; recipient = payout_order[current_period - 1]
-   * Passes that member's account and associated token account, creating it first if missing
    */
   const handlePayout = async (): Promise<string | undefined> => {
     if (!circle) return;
+    const currentReqId = walletRequestIdRef.current;
 
     if (!currentPeriodRecipientSlot) {
       setTxError({ message: 'No recipient seat determined for current turn.' });
@@ -1404,14 +1689,39 @@ export const CircleView: FC<CircleViewProps> = ({
     }
     const callerPk: PublicKey = callerSigner.publicKey;
 
+    // Per-(wallet, circle, action) in-flight lock (Requirement 5)
+    const lockKey = `${callerPk.toBase58()}:${circle.address.toBase58()}:payout:${circle.currentPeriod}`;
+    if (actionLockRef.current[lockKey]) {
+      console.warn(`[Action Deduplicated] payout is already in-flight for turn ${circle.currentPeriod}`);
+      return;
+    }
+    actionLockRef.current[lockKey] = true;
+
     setTxPending(true);
     setTxPendingMsg(`Paying out to ${payoutRecipientDisplay}...`);
     setTxError(null);
     setTxSuccess(null);
 
     try {
+      const program = getSolthriftProgram(connection, callerSigner as any);
+
+      // On-chain check: if already paid, do not send payout (Requirement 5)
+      try {
+        const recAccount = await program.account.member.fetchNullable(recMemberPda);
+        if (recAccount && (recAccount as any).hasBeenPaid) {
+          if (currentReqId === walletRequestIdRef.current) {
+            setTxSuccess({
+              message: `Payout for Seat ${currentPeriodRecipientSlot} has already been disbursed.`,
+            });
+            await loadCircleData(circle.address.toBase58(), true, currentReqId);
+          }
+          return;
+        }
+      } catch (checkErr) {
+        console.warn('[handlePayout] Could not pre-check recipient account:', checkErr);
+      }
+
       const preInstructions: TransactionInstruction[] = [];
-      // Requirement 2: pass that member's ATA, creating it first if missing
       const { ata: recipientAta, instruction: createAtaIx } = await getOrCreateAtaInstruction(
         connection,
         circle.tokenMint,
@@ -1422,7 +1732,6 @@ export const CircleView: FC<CircleViewProps> = ({
         preInstructions.push(createAtaIx);
       }
 
-      const program = getSolthriftProgram(connection, callerSigner as any);
       const method = program.methods
         .payout()
         .accounts({
@@ -1440,49 +1749,35 @@ export const CircleView: FC<CircleViewProps> = ({
         wallet: callerSigner,
         method,
         preInstructions: preInstructions.length > 0 ? preInstructions : undefined,
-        onStatusChange: (status) => setTxPendingMsg(status),
-      });
-      setTxSuccess({
-        signature: sig,
-        message: `Payout of ${formattedPotAmount} ${tokenSymbol} distributed to Seat ${currentPeriodRecipientSlot}.`,
+        onStatusChange: (status) => {
+          if (currentReqId === walletRequestIdRef.current) {
+            setTxPendingMsg(status);
+          }
+        },
       });
 
-      await loadCircleData(circle.address.toBase58(), true);
-      if (demoMode) {
-        fetchDemoBalances();
+      if (currentReqId === walletRequestIdRef.current) {
+        setTxSuccess({
+          signature: sig,
+          message: `Payout of ${formattedPotAmount} ${tokenSymbol} distributed to Seat ${currentPeriodRecipientSlot}.`,
+        });
+
+        await loadCircleData(circle.address.toBase58(), true, currentReqId);
+        if (demoMode) {
+          fetchDemoBalances();
+        }
       }
       return sig;
     } catch (err: any) {
-      console.error('payout failed:', err);
-      if (isUserCancellation(err)) return;
-      const translated = translateProgramError(err);
-      setTxError({ message: translated.message, details: translated.details });
-      throw err;
+      handleActionError(err, currentReqId, 'payout');
     } finally {
-      setTxPending(false);
-      setTxPendingMsg(null);
+      delete actionLockRef.current[lockKey];
+      if (currentReqId === walletRequestIdRef.current) {
+        setTxPending(false);
+        setTxPendingMsg(null);
+      }
     }
   };
-
-  // ⚡ AUTO-PAYOUT: When enabled, automatically initiates handlePayout as soon as turn conditions are met
-  useEffect(() => {
-    if (!autoPayoutEnabled) return;
-    if (canPayout && !txPending && !autoPayoutTriggeredRef.current) {
-      autoPayoutTriggeredRef.current = true;
-      console.log('[Auto-Payout] Turn complete! Automatically initiating payout to', payoutRecipientDisplay);
-      const timer = setTimeout(() => {
-        handlePayout();
-      }, 1200);
-      return () => clearTimeout(timer);
-    }
-  }, [canPayout, autoPayoutEnabled, txPending]);
-
-  // Reset autoPayout trigger guard when period changes or canPayout becomes false
-  useEffect(() => {
-    if (!canPayout) {
-      autoPayoutTriggeredRef.current = false;
-    }
-  }, [circle?.currentPeriod, canPayout]);
 
   /**
    * Section 5, Instruction 5: Remove Defaulter
@@ -1490,6 +1785,7 @@ export const CircleView: FC<CircleViewProps> = ({
    */
   const handleRemoveDefaulter = async (memberToRemove?: RealMemberData): Promise<string | undefined> => {
     if (!circle) return;
+    const currentReqId = walletRequestIdRef.current;
 
     const target = memberToRemove || targetLateMember;
     if (!target) {
@@ -1497,7 +1793,6 @@ export const CircleView: FC<CircleViewProps> = ({
       return;
     }
 
-    // Caller can be connected wallet or any funded demo key
     let callerSigner: any = connected && publicKey ? wallet : null;
     if (!callerSigner && demoMode && demoKeypairs) {
       for (const s of [2, 3, 4]) {
@@ -1514,12 +1809,38 @@ export const CircleView: FC<CircleViewProps> = ({
     }
     const callerPk: PublicKey = callerSigner.publicKey;
 
+    // Per-(wallet, circle, action) in-flight lock (Requirement 5)
+    const lockKey = `${callerPk.toBase58()}:${circle.address.toBase58()}:removeDefaulter:${target.slot}`;
+    if (actionLockRef.current[lockKey]) {
+      console.warn(`[Action Deduplicated] removeDefaulter is already in-flight for Seat ${target.slot}`);
+      return;
+    }
+    actionLockRef.current[lockKey] = true;
+
     setTxPending(true);
     setTxPendingMsg('Removing late member...');
     setTxError(null);
     setTxSuccess(null);
 
     try {
+      const program = getSolthriftProgram(connection, callerSigner as any);
+
+      // On-chain check: if already removed, do not send tx (Requirement 5)
+      try {
+        const targetAcc = await program.account.member.fetchNullable(target.memberPda);
+        if (targetAcc && (targetAcc.status as any).removed) {
+          if (currentReqId === walletRequestIdRef.current) {
+            setTxSuccess({
+              message: `Seat ${target.slot} has already been removed.`,
+            });
+            await loadCircleData(circle.address.toBase58(), true, currentReqId);
+          }
+          return;
+        }
+      } catch (checkErr) {
+        console.warn('[handleRemoveDefaulter] Could not pre-check target member:', checkErr);
+      }
+
       const preInstructions: TransactionInstruction[] = [];
       const { ata: memberAta, instruction: createAtaIx } = await getOrCreateAtaInstruction(
         connection,
@@ -1531,7 +1852,6 @@ export const CircleView: FC<CircleViewProps> = ({
         preInstructions.push(createAtaIx);
       }
 
-      const program = getSolthriftProgram(connection, callerSigner as any);
       const method = program.methods
         .removeDefaulter()
         .accounts({
@@ -1549,52 +1869,35 @@ export const CircleView: FC<CircleViewProps> = ({
         wallet: callerSigner,
         method,
         preInstructions: preInstructions.length > 0 ? preInstructions : undefined,
-        onStatusChange: (status) => setTxPendingMsg(status),
-      });
-      setTxSuccess({
-        signature: sig,
-        message: 'You removed the late member.',
+        onStatusChange: (status) => {
+          if (currentReqId === walletRequestIdRef.current) {
+            setTxPendingMsg(status);
+          }
+        },
       });
 
-      await loadCircleData(circle.address.toBase58(), true);
-      if (demoMode) {
-        fetchDemoBalances();
+      if (currentReqId === walletRequestIdRef.current) {
+        setTxSuccess({
+          signature: sig,
+          message: 'You removed the late member.',
+        });
+
+        await loadCircleData(circle.address.toBase58(), true, currentReqId);
+        if (demoMode) {
+          fetchDemoBalances();
+        }
       }
       return sig;
     } catch (err: any) {
-      console.error('removeDefaulter failed:', err);
-      if (isUserCancellation(err)) return;
-      const translated = translateProgramError(err);
-      setTxError({ message: translated.message, details: translated.details });
-      throw err;
+      handleActionError(err, currentReqId, 'removeDefaulter');
     } finally {
-      setTxPending(false);
-      setTxPendingMsg(null);
+      delete actionLockRef.current[lockKey];
+      if (currentReqId === walletRequestIdRef.current) {
+        setTxPending(false);
+        setTxPendingMsg(null);
+      }
     }
   };
-
-  // ⚡ AUTO-REMOVE DEFAULTER: When enabled, automatically initiates handleRemoveDefaulter when grace expires
-  useEffect(() => {
-    if (!autoRemoveEnabled) return;
-    if (canRemoveDefaulter && targetLateMember && !txPending && !autoRemoveTriggeredRef.current) {
-      autoRemoveTriggeredRef.current = true;
-      console.log(
-        '[Auto-Remove] Grace period expired! Automatically initiating removal of Seat',
-        targetLateMember.slot
-      );
-      const timer = setTimeout(() => {
-        handleRemoveDefaulter(targetLateMember);
-      }, 1500);
-      return () => clearTimeout(timer);
-    }
-  }, [canRemoveDefaulter, targetLateMember, autoRemoveEnabled, txPending]);
-
-  // Reset autoRemove guard when currentPeriod changes or canRemoveDefaulter resets
-  useEffect(() => {
-    if (!canRemoveDefaulter) {
-      autoRemoveTriggeredRef.current = false;
-    }
-  }, [circle?.currentPeriod, canRemoveDefaulter]);
 
   /**
    * Section 5, Instruction 6: Flag Leaving
@@ -1602,6 +1905,7 @@ export const CircleView: FC<CircleViewProps> = ({
    */
   const handleFlagLeaving = async (targetMember?: RealMemberData) => {
     if (!circle) return;
+    const currentReqId = walletRequestIdRef.current;
 
     const memberToFlag = targetMember || userMember;
     if (!memberToFlag) {
@@ -1622,6 +1926,14 @@ export const CircleView: FC<CircleViewProps> = ({
     }
     const activePk: PublicKey = activeSigner.publicKey;
 
+    // Per-(wallet, circle, action) in-flight lock (Requirement 5)
+    const lockKey = `${activePk.toBase58()}:${circle.address.toBase58()}:flagLeaving:${memberToFlag.slot}`;
+    if (actionLockRef.current[lockKey]) {
+      console.warn(`[Action Deduplicated] flagLeaving is already in-flight for Seat ${memberToFlag.slot}`);
+      return;
+    }
+    actionLockRef.current[lockKey] = true;
+
     setTxPending(true);
     setTxPendingMsg('Flagging leaving...');
     setTxError(null);
@@ -1629,6 +1941,23 @@ export const CircleView: FC<CircleViewProps> = ({
 
     try {
       const program = getSolthriftProgram(connection, activeSigner as any);
+
+      // On-chain check (Requirement 5)
+      try {
+        const memAcc = await program.account.member.fetchNullable(memberToFlag.memberPda);
+        if (memAcc && (memAcc.leaving || (memAcc.status as any).flaggedLeaving)) {
+          if (currentReqId === walletRequestIdRef.current) {
+            setTxSuccess({
+              message: `Seat ${memberToFlag.slot} is already flagged leaving.`,
+            });
+            await loadCircleData(circle.address.toBase58(), true, currentReqId);
+          }
+          return;
+        }
+      } catch (checkErr) {
+        console.warn('[handleFlagLeaving] Could not pre-check member account:', checkErr);
+      }
+
       const method = program.methods
         .flagLeaving()
         .accounts({
@@ -1641,22 +1970,29 @@ export const CircleView: FC<CircleViewProps> = ({
         connection,
         wallet: activeSigner,
         method,
+        onStatusChange: (status) => {
+          if (currentReqId === walletRequestIdRef.current) {
+            setTxPendingMsg(status);
+          }
+        },
       });
 
-      setTxSuccess({
-        signature: sig,
-        message: `Seat ${memberToFlag.slot} flagged leaving.`,
-      });
+      if (currentReqId === walletRequestIdRef.current) {
+        setTxSuccess({
+          signature: sig,
+          message: `Seat ${memberToFlag.slot} flagged leaving.`,
+        });
 
-      await loadCircleData(circle.address.toBase58(), true);
+        await loadCircleData(circle.address.toBase58(), true, currentReqId);
+      }
     } catch (err: any) {
-      console.error('flagLeaving failed:', err);
-      if (isUserCancellation(err)) return;
-      const translated = translateProgramError(err);
-      setTxError({ message: translated.message, details: translated.details });
+      handleActionError(err, currentReqId, 'flagLeaving');
     } finally {
-      setTxPending(false);
-      setTxPendingMsg(null);
+      delete actionLockRef.current[lockKey];
+      if (currentReqId === walletRequestIdRef.current) {
+        setTxPending(false);
+        setTxPendingMsg(null);
+      }
     }
   };
 
@@ -1666,6 +2002,7 @@ export const CircleView: FC<CircleViewProps> = ({
    */
   const handleExitMember = async (targetMember?: RealMemberData) => {
     if (!circle) return;
+    const currentReqId = walletRequestIdRef.current;
 
     const memberToExit = targetMember || userMember;
     if (!memberToExit) {
@@ -1689,12 +2026,38 @@ export const CircleView: FC<CircleViewProps> = ({
     }
     const callerPk: PublicKey = callerSigner.publicKey;
 
+    // Per-(wallet, circle, action) in-flight lock (Requirement 5)
+    const lockKey = `${callerPk.toBase58()}:${circle.address.toBase58()}:exitMember:${memberToExit.slot}`;
+    if (actionLockRef.current[lockKey]) {
+      console.warn(`[Action Deduplicated] exitMember is already in-flight for Seat ${memberToExit.slot}`);
+      return;
+    }
+    actionLockRef.current[lockKey] = true;
+
     setTxPending(true);
     setTxPendingMsg('Exiting circle...');
     setTxError(null);
     setTxSuccess(null);
 
     try {
+      const program = getSolthriftProgram(connection, callerSigner as any);
+
+      // On-chain check (Requirement 5)
+      try {
+        const memAcc = await program.account.member.fetchNullable(memberToExit.memberPda);
+        if (memAcc && (memAcc.status as any).exited) {
+          if (currentReqId === walletRequestIdRef.current) {
+            setTxSuccess({
+              message: `Seat ${memberToExit.slot} has already exited the circle.`,
+            });
+            await loadCircleData(circle.address.toBase58(), true, currentReqId);
+          }
+          return;
+        }
+      } catch (checkErr) {
+        console.warn('[handleExitMember] Could not pre-check member account:', checkErr);
+      }
+
       const preInstructions: TransactionInstruction[] = [];
       const { ata: memberAta, instruction: createAtaIx } = await getOrCreateAtaInstruction(
         connection,
@@ -1706,7 +2069,6 @@ export const CircleView: FC<CircleViewProps> = ({
         preInstructions.push(createAtaIx);
       }
 
-      const program = getSolthriftProgram(connection, callerSigner as any);
       const method = program.methods
         .exitMember()
         .accounts({
@@ -1724,24 +2086,32 @@ export const CircleView: FC<CircleViewProps> = ({
         wallet: callerSigner,
         method,
         preInstructions: preInstructions.length > 0 ? preInstructions : undefined,
-      });
-      setTxSuccess({
-        signature: sig,
-        message: `Seat ${memberToExit.slot} exited circle; deposit refunded.`,
+        onStatusChange: (status) => {
+          if (currentReqId === walletRequestIdRef.current) {
+            setTxPendingMsg(status);
+          }
+        },
       });
 
-      await loadCircleData(circle.address.toBase58(), true);
-      if (demoMode) {
-        fetchDemoBalances();
+      if (currentReqId === walletRequestIdRef.current) {
+        setTxSuccess({
+          signature: sig,
+          message: `Seat ${memberToExit.slot} exited circle; deposit refunded.`,
+        });
+
+        await loadCircleData(circle.address.toBase58(), true, currentReqId);
+        if (demoMode) {
+          fetchDemoBalances();
+        }
       }
     } catch (err: any) {
-      console.error('exitMember failed:', err);
-      if (isUserCancellation(err)) return;
-      const translated = translateProgramError(err);
-      setTxError({ message: translated.message, details: translated.details });
+      handleActionError(err, currentReqId, 'exitMember');
     } finally {
-      setTxPending(false);
-      setTxPendingMsg(null);
+      delete actionLockRef.current[lockKey];
+      if (currentReqId === walletRequestIdRef.current) {
+        setTxPending(false);
+        setTxPendingMsg(null);
+      }
     }
   };
 
@@ -1751,13 +2121,22 @@ export const CircleView: FC<CircleViewProps> = ({
    */
   const handleClaimRefund = async () => {
     if (!connected || !publicKey) {
-      setTxError({ message: 'Connect your wallet to continue.' });
+      console.warn('[handleClaimRefund Suppressed]: Wallet not connected.');
       return;
     }
     if (!circle || !userMember) {
       setTxError({ message: 'You are not a registered member of this circle.' });
       return;
     }
+    const currentReqId = walletRequestIdRef.current;
+
+    // Per-(wallet, circle, action) in-flight lock (Requirement 5)
+    const lockKey = `${publicKey.toBase58()}:${circle.address.toBase58()}:claimRefund`;
+    if (actionLockRef.current[lockKey]) {
+      console.warn('[Action Deduplicated] claimRefund is already in-flight');
+      return;
+    }
+    actionLockRef.current[lockKey] = true;
 
     setTxPending(true);
     setTxPendingMsg('Claiming contribution refund...');
@@ -1765,6 +2144,24 @@ export const CircleView: FC<CircleViewProps> = ({
     setTxSuccess(null);
 
     try {
+      const program = getSolthriftProgram(connection, wallet as any);
+
+      // On-chain check (Requirement 5)
+      try {
+        const memAcc = await program.account.member.fetchNullable(userMember.memberPda);
+        if (memAcc && (memAcc as any).depositRemaining?.isZero?.()) {
+          if (currentReqId === walletRequestIdRef.current) {
+            setTxSuccess({
+              message: 'You have already claimed your contribution refund.',
+            });
+            await loadCircleData(circle.address.toBase58(), true, currentReqId);
+          }
+          return;
+        }
+      } catch (checkErr) {
+        console.warn('[handleClaimRefund] Could not pre-check member account:', checkErr);
+      }
+
       const preInstructions: TransactionInstruction[] = [];
       const { ata: memberAta, instruction: createAtaIx } = await getOrCreateAtaInstruction(
         connection,
@@ -1776,7 +2173,6 @@ export const CircleView: FC<CircleViewProps> = ({
         preInstructions.push(createAtaIx);
       }
 
-      const program = getSolthriftProgram(connection, wallet as any);
       const method = program.methods
         .claimRefund()
         .accounts({
@@ -1794,21 +2190,29 @@ export const CircleView: FC<CircleViewProps> = ({
         wallet,
         method,
         preInstructions: preInstructions.length > 0 ? preInstructions : undefined,
-      });
-      setTxSuccess({
-        signature: sig,
-        message: 'You claimed your contribution refund.',
+        onStatusChange: (status) => {
+          if (currentReqId === walletRequestIdRef.current) {
+            setTxPendingMsg(status);
+          }
+        },
       });
 
-      await loadCircleData(circle.address.toBase58(), true);
+      if (currentReqId === walletRequestIdRef.current) {
+        setTxSuccess({
+          signature: sig,
+          message: 'You claimed your contribution refund.',
+        });
+
+        await loadCircleData(circle.address.toBase58(), true, currentReqId);
+      }
     } catch (err: any) {
-      console.error('claimRefund failed:', err);
-      if (isUserCancellation(err)) return;
-      const translated = translateProgramError(err);
-      setTxError({ message: translated.message, details: translated.details });
+      handleActionError(err, currentReqId, 'claimRefund');
     } finally {
-      setTxPending(false);
-      setTxPendingMsg(null);
+      delete actionLockRef.current[lockKey];
+      if (currentReqId === walletRequestIdRef.current) {
+        setTxPending(false);
+        setTxPendingMsg(null);
+      }
     }
   };
 
@@ -1818,13 +2222,22 @@ export const CircleView: FC<CircleViewProps> = ({
    */
   const handleClaimForfeit = async () => {
     if (!connected || !publicKey) {
-      setTxError({ message: 'Connect your wallet to continue.' });
+      console.warn('[handleClaimForfeit Suppressed]: Wallet not connected.');
       return;
     }
     if (!circle || !userMember) {
       setTxError({ message: 'You are not a registered member of this circle.' });
       return;
     }
+    const currentReqId = walletRequestIdRef.current;
+
+    // Per-(wallet, circle, action) in-flight lock (Requirement 5)
+    const lockKey = `${publicKey.toBase58()}:${circle.address.toBase58()}:claimForfeit`;
+    if (actionLockRef.current[lockKey]) {
+      console.warn('[Action Deduplicated] claimForfeit is already in-flight');
+      return;
+    }
+    actionLockRef.current[lockKey] = true;
 
     setTxPending(true);
     setTxPendingMsg('Claiming forfeit compensation...');
@@ -1832,6 +2245,24 @@ export const CircleView: FC<CircleViewProps> = ({
     setTxSuccess(null);
 
     try {
+      const program = getSolthriftProgram(connection, wallet as any);
+
+      // On-chain check (Requirement 5)
+      try {
+        const memAcc = await program.account.member.fetchNullable(userMember.memberPda);
+        if (memAcc && (memAcc as any).forfeitClaimed) {
+          if (currentReqId === walletRequestIdRef.current) {
+            setTxSuccess({
+              message: 'You have already claimed your forfeit compensation.',
+            });
+            await loadCircleData(circle.address.toBase58(), true, currentReqId);
+          }
+          return;
+        }
+      } catch (checkErr) {
+        console.warn('[handleClaimForfeit] Could not pre-check member account:', checkErr);
+      }
+
       const preInstructions: TransactionInstruction[] = [];
       const { ata: memberAta, instruction: createAtaIx } = await getOrCreateAtaInstruction(
         connection,
@@ -1843,7 +2274,6 @@ export const CircleView: FC<CircleViewProps> = ({
         preInstructions.push(createAtaIx);
       }
 
-      const program = getSolthriftProgram(connection, wallet as any);
       const method = program.methods
         .claimForfeit()
         .accounts({
@@ -1861,21 +2291,29 @@ export const CircleView: FC<CircleViewProps> = ({
         wallet,
         method,
         preInstructions: preInstructions.length > 0 ? preInstructions : undefined,
-      });
-      setTxSuccess({
-        signature: sig,
-        message: 'You claimed your forfeit share.',
+        onStatusChange: (status) => {
+          if (currentReqId === walletRequestIdRef.current) {
+            setTxPendingMsg(status);
+          }
+        },
       });
 
-      await loadCircleData(circle.address.toBase58(), true);
+      if (currentReqId === walletRequestIdRef.current) {
+        setTxSuccess({
+          signature: sig,
+          message: 'You claimed your forfeit share.',
+        });
+
+        await loadCircleData(circle.address.toBase58(), true, currentReqId);
+      }
     } catch (err: any) {
-      console.error('claimForfeit failed:', err);
-      if (isUserCancellation(err)) return;
-      const translated = translateProgramError(err);
-      setTxError({ message: translated.message, details: translated.details });
+      handleActionError(err, currentReqId, 'claimForfeit');
     } finally {
-      setTxPending(false);
-      setTxPendingMsg(null);
+      delete actionLockRef.current[lockKey];
+      if (currentReqId === walletRequestIdRef.current) {
+        setTxPending(false);
+        setTxPendingMsg(null);
+      }
     }
   };
 
@@ -1912,12 +2350,12 @@ export const CircleView: FC<CircleViewProps> = ({
 
       {/* Global Notifications */}
       {txPending && (
-        <div className="alert-box pending-alert" role="status" style={{ border: '1px solid rgba(245, 158, 11, 0.4)', background: 'rgba(245, 158, 11, 0.12)' }}>
+        <div className="alert-box pending-alert" role="status" style={{ border: '1px solid rgba(255, 255, 255, 0.25)', background: 'rgba(255, 255, 255, 0.06)' }}>
           <Loader2 size={18} className="spinner-icon" />
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
             <span style={{ fontWeight: 600 }}>{txPendingMsg || 'Transaction pending on the test network.'}</span>
             {txPendingMsg?.toLowerCase().includes('wallet') && (
-              <span style={{ fontSize: '0.82rem', color: '#fbbf24' }}>
+              <span style={{ fontSize: '0.82rem', color: 'rgba(255, 255, 255, 0.85)' }}>
                 Please check your browser toolbar or taskbar for the Phantom/Solflare extension popup to approve.
               </span>
             )}
@@ -2215,10 +2653,8 @@ export const CircleView: FC<CircleViewProps> = ({
                   <div
                     style={{
                       display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'flex-start',
-                      flexWrap: 'wrap',
-                      gap: '0.75rem',
+                      flexDirection: 'column',
+                      gap: '0.65rem',
                     }}
                   >
                     <div>
@@ -2241,36 +2677,23 @@ export const CircleView: FC<CircleViewProps> = ({
                           color: 'rgba(255, 255, 255, 0.65)',
                         }}
                       >
-                        ⚠️ Throwaway keys are kept in memory only — reloading or closing this page will lose them.
+                        Note: In-memory test keypairs are session-based. Refreshing or closing this tab resets them.
                       </p>
                     </div>
 
                     {demoKeypairs && (
-                      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                      <div className="demo-keys-grid">
                         {[2, 3, 4].map((slot) => {
                           const kp = demoKeypairs[slot];
                           const b = demoBalances[slot];
                           return (
-                            <div
-                              key={slot}
-                              style={{
-                                fontSize: '0.75rem',
-                                fontFamily: 'var(--font-mono)',
-                                background: 'rgba(0, 0, 0, 0.35)',
-                                padding: '0.25rem 0.6rem',
-                                borderRadius: '8px',
-                                border: '1px solid rgba(255, 255, 255, 0.1)',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '0.4rem',
-                              }}
-                            >
-                              <span style={{ color: '#94a3b8' }}>Seat {slot}:</span>
-                              <span style={{ color: '#f1f5f9', fontWeight: 600 }}>
+                            <div key={slot} className="demo-key-pill">
+                              <span style={{ color: 'var(--text-muted)' }}>Seat {slot}</span>
+                              <span style={{ color: '#ffffff', fontWeight: 600 }}>
                                 {kp.publicKey.toBase58().slice(0, 4)}...{kp.publicKey.toBase58().slice(-4)}
                               </span>
                               {b ? (
-                                <span style={{ color: 'rgba(255, 255, 255, 0.85)', fontSize: '0.72rem' }}>
+                                <span style={{ color: 'rgba(255, 255, 255, 0.75)', fontSize: '0.72rem' }}>
                                   ({b.sol.toFixed(2)} SOL · {b.token} {tokenSymbol})
                                 </span>
                               ) : null}
@@ -2293,7 +2716,7 @@ export const CircleView: FC<CircleViewProps> = ({
                         Fund Demo Members
                       </h3>
                       <p style={{ margin: '0.2rem 0 0', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-                        ONE transaction signed by your connected wallet that funds Seats 2, 3, and 4 with SOL, creates missing USDC ATAs, and transfers USDC.
+                        A single transaction signed by your connected wallet funds Seats 2, 3, and 4 with SOL, creates missing token accounts, and transfers test tokens.
                       </p>
                     </div>
                     <button
@@ -2310,7 +2733,7 @@ export const CircleView: FC<CircleViewProps> = ({
                     <thead>
                       <tr>
                         <th>Seat</th>
-                        <th>Throwaway Address</th>
+                        <th>Test Key Address</th>
                         <th>SOL Amount</th>
                         <th>{tokenSymbol} Amount</th>
                         <th>Current Balance</th>
@@ -2364,7 +2787,7 @@ export const CircleView: FC<CircleViewProps> = ({
                             </td>
                             <td style={{ fontSize: '0.78rem' }}>
                               {b ? (
-                                <span style={{ color: b.sol >= 0.01 ? '#10b981' : '#f59e0b' }}>
+                                <span style={{ color: b.sol >= 0.01 ? '#ffffff' : 'var(--text-muted)' }}>
                                   {b.sol.toFixed(3)} SOL · {b.token} {tokenSymbol}
                                 </span>
                               ) : (
@@ -2401,7 +2824,7 @@ export const CircleView: FC<CircleViewProps> = ({
                       ) : (
                         <>
                           <Coins size={14} />
-                          Approve & Send Funding (1 Tx)
+                          Approve & Fund Test Members
                         </>
                       )}
                     </button>
@@ -2479,8 +2902,8 @@ export const CircleView: FC<CircleViewProps> = ({
                   {autopilotWaitingApproval && (
                     <div
                       style={{
-                        background: 'rgba(245, 158, 11, 0.12)',
-                        border: '1px solid rgba(245, 158, 11, 0.45)',
+                        background: 'rgba(255, 255, 255, 0.06)',
+                        border: '1px solid rgba(255, 255, 255, 0.25)',
                         borderRadius: '14px',
                         padding: '1rem 1.25rem',
                         marginBottom: '1rem',
@@ -2492,12 +2915,12 @@ export const CircleView: FC<CircleViewProps> = ({
                       }}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                        <Wallet size={20} style={{ color: '#fbbf24', flexShrink: 0 }} />
+                        <Wallet size={20} style={{ color: '#ffffff', flexShrink: 0 }} />
                         <div>
-                          <strong style={{ color: '#fbbf24', fontSize: '0.92rem', display: 'block' }}>
+                          <strong style={{ color: '#ffffff', fontSize: '0.92rem', display: 'block' }}>
                             Approval Required: Seat 1 is Your Real Wallet
                           </strong>
-                          <span style={{ fontSize: '0.82rem', color: '#fef3c7' }}>
+                          <span style={{ fontSize: '0.82rem', color: 'rgba(255, 255, 255, 0.75)' }}>
                             {autopilotApprovalPrompt || 'Please approve Seat 1 contribution in your connected wallet.'}
                           </span>
                         </div>
@@ -2510,8 +2933,8 @@ export const CircleView: FC<CircleViewProps> = ({
                           padding: '0.5rem 1.25rem',
                           height: 'auto',
                           minHeight: 'unset',
-                          background: '#f59e0b',
-                          borderColor: '#f59e0b',
+                          background: '#ffffff',
+                          borderColor: '#ffffff',
                           color: '#000000',
                           fontWeight: 700,
                         }}
@@ -2614,8 +3037,8 @@ export const CircleView: FC<CircleViewProps> = ({
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
                             <div style={{ width: '22px', display: 'flex', justifyContent: 'center' }}>
                               {isRunning && <Loader2 size={15} className="spinner-icon" style={{ color: '#ffffff' }} />}
-                              {isDone && <CheckCircle2 size={16} className="text-green" />}
-                              {isWaiting && <Clock size={16} style={{ color: '#f59e0b' }} />}
+                              {isDone && <CheckCircle2 size={16} style={{ color: '#ffffff' }} />}
+                              {isWaiting && <Clock size={16} style={{ color: 'rgba(255, 255, 255, 0.75)' }} />}
                               {isFailed && <AlertTriangle size={16} className="text-red" />}
                               {isSkipped && <Info size={16} style={{ color: '#94a3b8' }} />}
                               {!isRunning && !isDone && !isWaiting && !isFailed && !isSkipped && (
@@ -2626,7 +3049,7 @@ export const CircleView: FC<CircleViewProps> = ({
                               <span
                                 style={{
                                   fontWeight: isRunning || isWaiting ? 600 : 500,
-                                  color: isDone ? '#ffffff' : isRunning ? '#ffffff' : isWaiting ? '#fbbf24' : 'var(--text-muted)',
+                                  color: isDone ? '#ffffff' : isRunning ? '#ffffff' : isWaiting ? '#ffffff' : 'var(--text-muted)',
                                 }}
                               >
                                 {step.title}
@@ -2666,11 +3089,11 @@ export const CircleView: FC<CircleViewProps> = ({
                                 fontWeight: 600,
                                 textTransform: 'uppercase',
                                 color: isDone
-                                  ? '#10b981'
+                                  ? '#ffffff'
                                   : isRunning
                                   ? '#ffffff'
                                   : isWaiting
-                                  ? '#f59e0b'
+                                  ? 'rgba(255, 255, 255, 0.75)'
                                   : isFailed
                                   ? '#ef4444'
                                   : 'var(--text-faint)',
@@ -2688,7 +3111,7 @@ export const CircleView: FC<CircleViewProps> = ({
             </div>
           )}
 
-          {/* ⚡ 4-SEAT LIVE DEMO COCKPIT */}
+          {/* 4-SEAT LIVE DEMO COCKPIT */}
           <div
             className="card demo-cockpit-card"
             style={{
@@ -2769,13 +3192,7 @@ export const CircleView: FC<CircleViewProps> = ({
             {cockpitExpanded && (
               <>
                 {/* 4 Seat Columns */}
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: `repeat(${Math.min(circle.membersTarget, 4)}, minmax(0, 1fr))`,
-                    gap: '0.85rem',
-                  }}
-                >
+                <div className="demo-cockpit-grid">
                   {Array.from({ length: circle.membersTarget }, (_, i) => i + 1).map((slotNum) => {
                     const member = circle.loadedMembers.find((m) => m.slot === slotNum);
                     const isTaken = !!member;
@@ -2830,7 +3247,7 @@ export const CircleView: FC<CircleViewProps> = ({
                         key={slotNum}
                         onClick={() => {
                           setSelectedSeat(slotNum);
-                          if (!isActiveNow && assignedAddress && !isDemoSeat) {
+                          if (!isActiveNow && !isDemoSeat) {
                             handlePromptSwitchWallet(slotNum);
                           }
                         }}
@@ -2872,7 +3289,7 @@ export const CircleView: FC<CircleViewProps> = ({
                                     background: 'rgba(255, 255, 255, 0.08)',
                                   }}
                                 >
-                                  ⚡ Demo Key
+                                  Demo Key
                                 </span>
                               )}
                             </div>
@@ -2885,7 +3302,7 @@ export const CircleView: FC<CircleViewProps> = ({
                                 Ready
                               </span>
                             ) : isWalletConnected ? (
-                              <span className="badge-pill" style={{ margin: 0, fontSize: '0.68rem', padding: '2px 8px', color: '#10b981', borderColor: 'rgba(16, 185, 129, 0.35)' }}>
+                              <span className="badge-pill" style={{ margin: 0, fontSize: '0.68rem', padding: '2px 8px', color: '#ffffff', borderColor: 'rgba(255, 255, 255, 0.35)' }}>
                                 <Check size={11} /> Connected
                               </span>
                             ) : (
@@ -2902,10 +3319,10 @@ export const CircleView: FC<CircleViewProps> = ({
                                 {assignedAddress.slice(0, 4)}...{assignedAddress.slice(-4)}
                               </span>
                             ) : (
-                              <span style={{ color: 'var(--text-faint)' }}>Switch Solflare to Acc {slotNum}</span>
+                              <span style={{ color: 'var(--text-faint)' }}>Switch wallet to Account {slotNum}</span>
                             )}
                             {demoBal && (
-                              <div style={{ fontSize: '0.72rem', color: demoBal.sol >= 0.01 ? 'rgba(255, 255, 255, 0.85)' : '#f59e0b', marginTop: '2px' }}>
+                              <div style={{ fontSize: '0.72rem', color: demoBal.sol >= 0.01 ? 'rgba(255, 255, 255, 0.85)' : 'var(--text-muted)', marginTop: '2px' }}>
                                 {demoBal.sol.toFixed(3)} SOL · {demoBal.token} {tokenSymbol}
                               </div>
                             )}
@@ -2955,16 +3372,24 @@ export const CircleView: FC<CircleViewProps> = ({
 
                         {/* Action Buttons */}
                         <div style={{ marginTop: 'auto', paddingTop: '0.25rem' }} onClick={(e) => e.stopPropagation()}>
+                          {/* Active seat loading wallet indicator (Requirement 4) */}
+                          {isActiveNow && isWalletBusy && (
+                            <div className="wallet-loading-indicator" style={{ marginBottom: '0.35rem', justifyContent: 'center' }}>
+                              <Loader2 size={12} className="spinner-icon" />
+                              <span>Loading this wallet...</span>
+                            </div>
+                          )}
+
                           {/* 1. Demo Seat Join */}
                           {isCircleOpen && isDemoSeat && demoKp && !isTaken && slotNum === nextSlot && (
                             <button
                               type="button"
                               className="btn-primary"
                               style={{ width: '100%', padding: '0.45rem', fontSize: '0.78rem', minHeight: '34px', height: 'auto' }}
-                              disabled={txPending}
+                              disabled={txPending || isWalletBusy}
                               onClick={() => handleJoinCircle(createKeypairWallet(demoKp))}
                             >
-                              ⚡ Join (Demo Seat {slotNum})
+                              Join Seat {slotNum} (Demo)
                             </button>
                           )}
 
@@ -2974,10 +3399,17 @@ export const CircleView: FC<CircleViewProps> = ({
                               type="button"
                               className="btn-primary"
                               style={{ width: '100%', padding: '0.45rem', fontSize: '0.78rem', minHeight: '34px', height: 'auto' }}
-                              disabled={txPending}
+                              disabled={txPending || isWalletBusy}
                               onClick={handleJoinCircle}
                             >
-                              Join Seat {slotNum}
+                              {isWalletBusy ? (
+                                <>
+                                  <Loader2 size={13} className="spinner-icon" />
+                                  Loading this wallet...
+                                </>
+                              ) : (
+                                `Join Seat ${slotNum}`
+                              )}
                             </button>
                           )}
 
@@ -2991,7 +3423,7 @@ export const CircleView: FC<CircleViewProps> = ({
                               onClick={() => handlePromptSwitchWallet(slotNum)}
                               title="Switch wallet account to join this seat"
                             >
-                              Switch to Acc {slotNum} to join
+                              Switch to Account {slotNum} to join
                             </button>
                           )}
 
@@ -3008,10 +3440,10 @@ export const CircleView: FC<CircleViewProps> = ({
                               type="button"
                               className="btn-primary"
                               style={{ width: '100%', padding: '0.45rem', fontSize: '0.78rem', minHeight: '34px', height: 'auto' }}
-                              disabled={nowSec > graceDeadline || txPending}
+                              disabled={nowSec > graceDeadline || txPending || isWalletBusy}
                               onClick={() => handleContribute(member, createKeypairWallet(demoKp))}
                             >
-                              ⚡ Pay Turn ({formattedContribution} {tokenSymbol})
+                              Pay Turn ({formattedContribution} {tokenSymbol})
                             </button>
                           )}
 
@@ -3022,10 +3454,17 @@ export const CircleView: FC<CircleViewProps> = ({
                                 type="button"
                                 className="btn-primary"
                                 style={{ width: '100%', padding: '0.45rem', fontSize: '0.78rem', minHeight: '34px', height: 'auto' }}
-                                disabled={nowSec > graceDeadline || txPending}
+                                disabled={nowSec > graceDeadline || txPending || isWalletBusy}
                                 onClick={() => handleContribute(member)}
                               >
-                                Pay turn ({formattedContribution} {tokenSymbol})
+                                {isWalletBusy ? (
+                                  <>
+                                    <Loader2 size={13} className="spinner-icon" />
+                                    Loading this wallet...
+                                  </>
+                                ) : (
+                                  `Pay turn (${formattedContribution} ${tokenSymbol})`
+                                )}
                               </button>
                             ) : (
                               <button
@@ -3044,7 +3483,7 @@ export const CircleView: FC<CircleViewProps> = ({
                           {/* 7. If Active and already paid */}
                           {isCircleActive && isPaidThisTurn && (
                             <div style={{ fontSize: '0.72rem', color: 'var(--status-paid)', textAlign: 'center', fontWeight: 500 }}>
-                              ✓ Payment locked in vault
+                              Payment confirmed in vault
                             </div>
                           )}
                         </div>
@@ -3122,11 +3561,11 @@ export const CircleView: FC<CircleViewProps> = ({
                     <strong style={{ color: '#ffffff' }}>{circle.activeMemberCount} of {circle.membersTarget}</strong>
                   </div>
                   {hasReserve && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.825rem', marginBottom: '0.5rem', background: 'rgba(16, 185, 129, 0.1)', padding: '0.3rem 0.5rem', borderRadius: '6px' }}>
-                      <span style={{ color: '#10b981', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.825rem', marginBottom: '0.5rem', background: 'rgba(255, 255, 255, 0.06)', border: '1px solid rgba(255, 255, 255, 0.15)', padding: '0.3rem 0.5rem', borderRadius: '6px' }}>
+                      <span style={{ color: '#ffffff', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                         <Coins size={13} /> On-chain reserve pool
                       </span>
-                      <strong style={{ color: '#10b981', fontFamily: 'monospace' }}>+{formattedReserve} {tokenSymbol}</strong>
+                      <strong style={{ color: '#ffffff', fontFamily: 'monospace' }}>+{formattedReserve} {tokenSymbol}</strong>
                     </div>
                   )}
 
@@ -3257,25 +3696,38 @@ export const CircleView: FC<CircleViewProps> = ({
                       <span>This circle is full.</span>
                     </div>
                   ) : (
-                    <button
-                      type="button"
-                      id="join-circle-btn"
-                      className="btn-primary"
-                      style={{ width: '100%' }}
-                      disabled={txPending}
-                      onClick={handleJoinCircle}
-                    >
-                      {txPending ? (
-                        <>
-                          <Loader2 size={16} className="spinner-icon" />
-                          Joining circle...
-                        </>
-                      ) : (
-                        <>
-                          Join circle
-                        </>
+                    <div>
+                      {isWalletBusy && (
+                        <div className="wallet-loading-indicator" style={{ marginBottom: '0.65rem' }}>
+                          <Loader2 size={13} className="spinner-icon" />
+                          <span>Loading this wallet...</span>
+                        </div>
                       )}
-                    </button>
+                      <button
+                        type="button"
+                        id="join-circle-btn"
+                        className="btn-primary"
+                        style={{ width: '100%' }}
+                        disabled={txPending || isWalletBusy}
+                        onClick={handleJoinCircle}
+                      >
+                        {txPending ? (
+                          <>
+                            <Loader2 size={16} className="spinner-icon" />
+                            Joining circle...
+                          </>
+                        ) : isWalletBusy ? (
+                          <>
+                            <Loader2 size={16} className="spinner-icon" />
+                            Loading this wallet...
+                          </>
+                        ) : (
+                          <>
+                            Join circle
+                          </>
+                        )}
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>
@@ -3301,6 +3753,13 @@ export const CircleView: FC<CircleViewProps> = ({
                   </div>
                 </Reveal>
 
+                {isWalletBusy && (
+                  <div className="wallet-loading-indicator" style={{ marginBottom: '0.65rem' }}>
+                    <Loader2 size={13} className="spinner-icon" />
+                    <span>Loading this wallet...</span>
+                  </div>
+                )}
+
                 {/* Contribute Section for Connected Member */}
                 {isCircleActive && (
                   <div style={{ marginBottom: '1rem' }}>
@@ -3318,7 +3777,7 @@ export const CircleView: FC<CircleViewProps> = ({
                           id="member-contribute-btn"
                           className="btn-primary"
                           style={{ width: '100%' }}
-                          disabled={nowSec > graceDeadline || txPending}
+                          disabled={nowSec > graceDeadline || txPending || isWalletBusy}
                           onClick={handleContribute}
                         >
                           {txPending && txPendingMsg?.includes('Paying turn') ? (
@@ -3350,7 +3809,7 @@ export const CircleView: FC<CircleViewProps> = ({
                       type="button"
                       id="member-flag-leaving-btn"
                       className="btn-secondary"
-                      disabled={txPending}
+                      disabled={txPending || isWalletBusy}
                       onClick={() => handleFlagLeaving()}
                       title="Flag leaving so your deposit is returned when the circle resets"
                     >
@@ -3364,7 +3823,7 @@ export const CircleView: FC<CircleViewProps> = ({
                       type="button"
                       id="member-exit-btn"
                       className="btn-primary"
-                      disabled={txPending}
+                      disabled={txPending || isWalletBusy}
                       onClick={() => handleExitMember()}
                       title="Reclaim your deposit and exit this circle"
                     >
@@ -3386,7 +3845,7 @@ export const CircleView: FC<CircleViewProps> = ({
                         Manual turn payments
                       </h2>
                       <p className="card-desc" style={{ margin: '0.2rem 0 0 0' }}>
-                        Click a seat to switch wallet or trigger instant 1-click Demo payment for Turn {circle.currentPeriod}.
+                        Select a seat to switch wallet or trigger instant demo payment for Turn {circle.currentPeriod}.
                       </p>
                     </div>
                   </div>
@@ -3409,7 +3868,7 @@ export const CircleView: FC<CircleViewProps> = ({
                             opacity: isPaid ? 0.6 : 1,
                             minHeight: '38px',
                           }}
-                          disabled={isPaid || txPending}
+                          disabled={isPaid || txPending || isWalletBusy}
                           onClick={() => {
                             if (publicKey && m.wallet.equals(publicKey)) {
                               handleContribute(m);
@@ -3421,9 +3880,9 @@ export const CircleView: FC<CircleViewProps> = ({
                           }}
                         >
                           {isPaid
-                            ? `✓ Seat ${m.slot} Paid`
+                            ? `Seat ${m.slot} Paid`
                             : isDemo
-                            ? `⚡ Pay Seat ${m.slot} (Demo Key)`
+                            ? `Pay Seat ${m.slot} (Demo)`
                             : `Pay Seat ${m.slot} (${formattedContribution} ${tokenSymbol})`}
                         </button>
                       );
@@ -3493,29 +3952,23 @@ export const CircleView: FC<CircleViewProps> = ({
                 </div>
               )}
 
-              {/* ⚡ Auto-Payout & Auto-Evict Toggles for Live Demos */}
+              {/* Auto-Payout & Auto-Evict Toggles for Live Demos */}
               {isCircleActive && (
-                <>
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(16, 185, 129, 0.04))',
-                      border: '1px solid rgba(16, 185, 129, 0.35)',
-                      borderRadius: '12px',
-                      padding: '0.65rem 0.95rem',
-                      marginTop: '0.75rem',
-                    }}
-                  >
+                <div className="demo-automation-box">
+                  <div className="demo-automation-header">
+                    <Sparkles size={14} style={{ color: '#ffffff' }} />
+                    <span>Demo Automation Controls</span>
+                  </div>
+
+                  <div className="demo-automation-row">
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <RefreshCw size={15} style={{ color: '#10b981' }} />
+                      <RefreshCw size={14} style={{ color: '#ffffff' }} />
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        <span style={{ fontSize: '0.825rem', fontWeight: 600, color: '#ffffff' }}>
-                          Auto-Payout Pot on Completion
+                        <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#ffffff' }}>
+                          Auto-payout pot on completion
                         </span>
-                        <span style={{ fontSize: '0.725rem', color: 'var(--text-muted)' }}>
-                          Automatically triggers payout prompt as soon as all contributions land
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                          Automatically triggers payout prompt as soon as all turn contributions arrive
                         </span>
                       </div>
                     </div>
@@ -3525,10 +3978,10 @@ export const CircleView: FC<CircleViewProps> = ({
                         padding: '0.25rem 0.75rem',
                         fontSize: '0.75rem',
                         borderRadius: '20px',
-                        background: autoPayoutEnabled ? '#10b981' : 'rgba(255, 255, 255, 0.05)',
+                        background: autoPayoutEnabled ? '#ffffff' : 'rgba(255, 255, 255, 0.05)',
                         color: autoPayoutEnabled ? '#000000' : 'var(--text-muted)',
                         fontWeight: 700,
-                        border: `1px solid ${autoPayoutEnabled ? '#10b981' : 'var(--glass-border-subtle)'}`,
+                        border: `1px solid ${autoPayoutEnabled ? '#ffffff' : 'var(--glass-border-subtle)'}`,
                         cursor: 'pointer',
                         transition: 'all 0.2s ease',
                       }}
@@ -3538,27 +3991,15 @@ export const CircleView: FC<CircleViewProps> = ({
                     </button>
                   </div>
 
-                  {/* Auto-Remove Defaulter Toggle for Live Demos */}
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.12), rgba(239, 68, 68, 0.04))',
-                      border: '1px solid rgba(239, 68, 68, 0.35)',
-                      borderRadius: '12px',
-                      padding: '0.65rem 0.95rem',
-                      marginTop: '0.5rem',
-                    }}
-                  >
+                  <div className="demo-automation-row">
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <ShieldAlert size={16} style={{ color: '#ef4444' }} />
+                      <ShieldAlert size={15} style={{ color: '#ffffff' }} />
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        <span style={{ fontSize: '0.825rem', fontWeight: 600, color: '#ffffff' }}>
-                          Auto-Evict Defaulter when Grace Expires
+                        <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#ffffff' }}>
+                          Auto-evict defaulter when grace expires
                         </span>
-                        <span style={{ fontSize: '0.725rem', color: 'var(--text-muted)' }}>
-                          Automatically prompts removal of late member once deadline + grace ends
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                          Automatically prompts removal of delinquent member once grace period expires
                         </span>
                       </div>
                     </div>
@@ -3568,10 +4009,10 @@ export const CircleView: FC<CircleViewProps> = ({
                         padding: '0.25rem 0.75rem',
                         fontSize: '0.75rem',
                         borderRadius: '20px',
-                        background: autoRemoveEnabled ? '#ef4444' : 'rgba(255, 255, 255, 0.05)',
-                        color: autoRemoveEnabled ? '#ffffff' : 'var(--text-muted)',
+                        background: autoRemoveEnabled ? '#ffffff' : 'rgba(255, 255, 255, 0.05)',
+                        color: autoRemoveEnabled ? '#000000' : 'var(--text-muted)',
                         fontWeight: 700,
-                        border: `1px solid ${autoRemoveEnabled ? '#ef4444' : 'var(--glass-border-subtle)'}`,
+                        border: `1px solid ${autoRemoveEnabled ? '#ffffff' : 'var(--glass-border-subtle)'}`,
                         cursor: 'pointer',
                         transition: 'all 0.2s ease',
                       }}
@@ -3580,17 +4021,24 @@ export const CircleView: FC<CircleViewProps> = ({
                       {autoRemoveEnabled ? 'Active' : 'Off'}
                     </button>
                   </div>
-                </>
+                </div>
               )}
 
               <div className="triggers-action-list" style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                {isWalletBusy && (
+                  <div className="wallet-loading-indicator" style={{ marginBottom: '0.45rem' }}>
+                    <Loader2 size={13} className="spinner-icon" />
+                    <span>Loading this wallet...</span>
+                  </div>
+                )}
+
                 {/* 1. Pay out to <member> */}
                 <div className="trigger-item">
                   <button
                     type="button"
                     id="trigger-payout-btn"
                     className={`trigger-action-btn ${canPayout ? 'btn-primary' : 'btn-disabled'}`}
-                    disabled={!canPayout || txPending}
+                    disabled={!canPayout || txPending || isWalletBusy}
                     onClick={handlePayout}
                   >
                     {txPending && txPendingMsg?.includes('Paying out') ? (
@@ -3622,7 +4070,7 @@ export const CircleView: FC<CircleViewProps> = ({
                     type="button"
                     id="trigger-remove-defaulter-btn"
                     className={`trigger-action-btn ${canRemoveDefaulter ? 'btn-primary' : 'btn-disabled'}`}
-                    disabled={!canRemoveDefaulter || txPending}
+                    disabled={!canRemoveDefaulter || txPending || isWalletBusy}
                     onClick={() => handleRemoveDefaulter()}
                   >
                     {txPending && (txPendingMsg?.toLowerCase().includes('late member') || txPendingMsg?.toLowerCase().includes('wallet') || txPendingMsg?.toLowerCase().includes('simulating') || txPendingMsg?.toLowerCase().includes('solana')) ? (
@@ -3654,7 +4102,7 @@ export const CircleView: FC<CircleViewProps> = ({
                     type="button"
                     id="trigger-contribute-btn"
                     className={`trigger-action-btn ${canContribute ? 'btn-primary' : 'btn-disabled'}`}
-                    disabled={!canContribute || txPending}
+                    disabled={!canContribute || txPending || isWalletBusy}
                     onClick={handleContribute}
                   >
                     {txPending && txPendingMsg?.includes('Paying turn') ? (
@@ -3706,7 +4154,7 @@ export const CircleView: FC<CircleViewProps> = ({
                         type="button"
                         id="claim-refund-btn"
                         className={`trigger-action-btn ${canClaimRefund ? 'btn-primary' : 'btn-disabled'}`}
-                        disabled={!canClaimRefund || txPending}
+                        disabled={!canClaimRefund || txPending || isWalletBusy}
                         onClick={handleClaimRefund}
                       >
                         {txPending && txPendingMsg?.includes('Claiming contribution refund') ? (
@@ -3734,7 +4182,7 @@ export const CircleView: FC<CircleViewProps> = ({
                         type="button"
                         id="claim-forfeit-btn"
                         className={`trigger-action-btn ${canClaimForfeit ? 'btn-primary' : 'btn-disabled'}`}
-                        disabled={!canClaimForfeit || txPending}
+                        disabled={!canClaimForfeit || txPending || isWalletBusy}
                         onClick={handleClaimForfeit}
                       >
                         {txPending && txPendingMsg?.includes('Claiming forfeit compensation') ? (
@@ -3763,7 +4211,7 @@ export const CircleView: FC<CircleViewProps> = ({
                           type="button"
                           id="closing-exit-btn"
                           className={`trigger-action-btn ${canExitMember ? 'btn-primary' : 'btn-disabled'}`}
-                          disabled={!canExitMember || txPending}
+                          disabled={!canExitMember || txPending || isWalletBusy}
                           onClick={() => handleExitMember()}
                         >
                           {txPending && txPendingMsg?.includes('Exiting circle') ? (
@@ -3797,7 +4245,7 @@ export const CircleView: FC<CircleViewProps> = ({
                           type="button"
                           id="member-flag-leaving-btn"
                           className="btn-secondary trigger-action-btn"
-                          disabled={txPending}
+                          disabled={txPending || isWalletBusy}
                           onClick={() => handleFlagLeaving()}
                           title="Flag leaving so your deposit is returned when the circle resets"
                         >
@@ -3818,7 +4266,7 @@ export const CircleView: FC<CircleViewProps> = ({
                           type="button"
                           id="member-exit-btn"
                           className="btn-primary trigger-action-btn"
-                          disabled={txPending}
+                          disabled={txPending || isWalletBusy}
                           onClick={() => handleExitMember()}
                           title="Reclaim your deposit and exit this circle"
                         >
@@ -4111,9 +4559,9 @@ export const CircleView: FC<CircleViewProps> = ({
                   <span
                     className="badge-pill"
                     style={{
-                      borderColor: '#10b981',
-                      color: '#10b981',
-                      background: 'rgba(16, 185, 129, 0.08)',
+                      borderColor: 'rgba(255, 255, 255, 0.35)',
+                      color: '#ffffff',
+                      background: 'rgba(255, 255, 255, 0.08)',
                     }}
                   >
                     {circle.loadedMembers.filter((m) => m.hasBeenPaid).length} of {circle.orderLen || circle.membersTarget} disbursed
@@ -4142,14 +4590,14 @@ export const CircleView: FC<CircleViewProps> = ({
                         justifyContent: 'space-between',
                         alignItems: 'center',
                         background: isPaid
-                          ? 'rgba(16, 185, 129, 0.06)'
+                          ? 'rgba(255, 255, 255, 0.07)'
                           : isCurrent
-                          ? 'rgba(245, 158, 11, 0.06)'
+                          ? 'rgba(255, 255, 255, 0.04)'
                           : 'rgba(255, 255, 255, 0.02)',
                         border: isPaid
-                          ? '1px solid rgba(16, 185, 129, 0.35)'
+                          ? '1px solid rgba(255, 255, 255, 0.35)'
                           : isCurrent
-                          ? '1px solid rgba(245, 158, 11, 0.35)'
+                          ? '1px solid rgba(255, 255, 255, 0.20)'
                           : '1px solid var(--glass-border-subtle)',
                         borderRadius: '12px',
                         padding: '0.85rem 1.1rem',
@@ -4161,8 +4609,8 @@ export const CircleView: FC<CircleViewProps> = ({
                             width: '32px',
                             height: '32px',
                             borderRadius: '50%',
-                            background: isPaid ? '#10b981' : isCurrent ? '#f59e0b' : 'rgba(255, 255, 255, 0.08)',
-                            color: isPaid || isCurrent ? '#000000' : 'var(--text-muted)',
+                            background: isPaid ? '#ffffff' : isCurrent ? 'rgba(255, 255, 255, 0.20)' : 'rgba(255, 255, 255, 0.08)',
+                            color: isPaid ? '#000000' : isCurrent ? '#ffffff' : 'var(--text-muted)',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
@@ -4183,11 +4631,11 @@ export const CircleView: FC<CircleViewProps> = ({
                               </span>
                             )}
                           </div>
-                          <span style={{ fontSize: '0.78rem', color: isPaid ? '#34d399' : isCurrent ? '#fbbf24' : 'var(--text-muted)' }}>
+                          <span style={{ fontSize: '0.78rem', color: isPaid ? '#ffffff' : isCurrent ? 'rgba(255, 255, 255, 0.85)' : 'var(--text-muted)' }}>
                             {isPaid
-                              ? `✅ Pot disbursed on-chain (${potAmountFormatted} ${tokenSymbol})`
+                              ? `Pot disbursed on-chain (${potAmountFormatted} ${tokenSymbol})`
                               : isCurrent
-                              ? `⏳ In progress (Turn ${turnNum} recipient · Pot: ${potAmountFormatted} ${tokenSymbol})`
+                              ? `In progress (Turn ${turnNum} recipient · Pot: ${potAmountFormatted} ${tokenSymbol})`
                               : `Upcoming turn recipient`}
                           </span>
                         </div>
@@ -4201,12 +4649,12 @@ export const CircleView: FC<CircleViewProps> = ({
                             padding: '0.25rem 0.6rem',
                             borderRadius: '6px',
                             background: isPaid
-                              ? 'rgba(16, 185, 129, 0.15)'
+                              ? 'rgba(255, 255, 255, 0.12)'
                               : isCurrent
-                              ? 'rgba(245, 158, 11, 0.15)'
+                              ? 'rgba(255, 255, 255, 0.06)'
                               : 'rgba(255, 255, 255, 0.05)',
-                            color: isPaid ? '#10b981' : isCurrent ? '#f59e0b' : 'var(--text-muted)',
-                            border: `1px solid ${isPaid ? 'rgba(16, 185, 129, 0.3)' : isCurrent ? 'rgba(245, 158, 11, 0.3)' : 'rgba(255, 255, 255, 0.08)'}`,
+                            color: isPaid ? '#ffffff' : isCurrent ? 'rgba(255, 255, 255, 0.85)' : 'var(--text-muted)',
+                            border: `1px solid ${isPaid ? 'rgba(255, 255, 255, 0.35)' : isCurrent ? 'rgba(255, 255, 255, 0.20)' : 'rgba(255, 255, 255, 0.08)'}`,
                           }}
                         >
                           {isPaid ? 'DISBURSED' : isCurrent ? 'CURRENT POT' : 'QUEUED'}

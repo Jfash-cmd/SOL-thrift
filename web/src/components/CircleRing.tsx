@@ -199,7 +199,7 @@ export const CircleRing: FC<CircleRingProps> = ({
       >
         <defs>
           <filter id="ring-glow" x="-20%" y="-20%" width="140%" height="140%">
-            <feDropShadow dx="0" dy="0" stdDeviation="4" floodColor="#10b981" floodOpacity="0.4" />
+            <feDropShadow dx="0" dy="0" stdDeviation="4" floodColor="#ffffff" floodOpacity="0.3" />
           </filter>
         </defs>
 
@@ -220,11 +220,11 @@ export const CircleRing: FC<CircleRingProps> = ({
           let strokeDasharray: string | undefined = undefined;
 
           if (seg.state === 'paid') {
-            fill = '#10b981';
-            stroke = '#10b981';
+            fill = '#ffffff';
+            stroke = '#ffffff';
           } else if (seg.state === 'waiting') {
             fill = 'transparent';
-            stroke = '#f59e0b';
+            stroke = 'rgba(255, 255, 255, 0.45)';
           } else if (seg.state === 'removed') {
             fill = 'rgba(239, 68, 68, 0.16)';
             stroke = '#ef4444';

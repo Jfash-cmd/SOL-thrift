@@ -65,18 +65,24 @@ export const WalletContextProvider: FC<Props> = ({ children }) => {
   }, [walletError]);
 
   const handleError = useCallback((error: any, adapter?: any) => {
-    // Log for debugging without disrupting the user UI
-    console.warn('Solana wallet adapter event:', error?.name, error?.message, adapter?.name);
-
-    if (!error) return;
-
+    const timestamp = new Date().toISOString();
     const msg = String(error?.message || error || '').toLowerCase();
     const name = String(error?.name || '');
     const code = error?.code ?? error?.error?.code;
 
-    // Filter out all transient / benign events: user cancellations, popup closures,
-    // account switching in Solflare, window blocked, timeouts, or disconnects
-    if (
+    // Requirement 1: Log every wallet error event with timestamp and error object
+    console.warn(`[WalletEvent ${timestamp}] adapter.error:`, {
+      name,
+      message: error?.message,
+      code,
+      adapter: adapter?.name,
+      error,
+    });
+
+    if (!error) return;
+
+    // Requirement 3: Filter out all transient/benign events during wallet switches and cancellations
+    const isBenignSwitchOrCancellation =
       code === 4001 ||
       msg.includes('user rejected') ||
       msg.includes('rejected') ||
@@ -86,13 +92,18 @@ export const WalletContextProvider: FC<Props> = ({ children }) => {
       msg.includes('blocked') ||
       msg.includes('unlocked') ||
       msg.includes('already connected') ||
+      msg.includes('not connected') ||
+      msg.includes('disconnected') ||
+      msg.includes('account changed') ||
       name === 'WalletWindowBlockedError' ||
       name === 'WalletWindowClosedError' ||
       name === 'WalletConnectionError' ||
       name === 'WalletDisconnectionError' ||
-      name === 'WalletTimeoutError'
-    ) {
-      // Do not display error banners for normal user interactions or wallet switching
+      name === 'WalletNotConnectedError' ||
+      name === 'WalletTimeoutError';
+
+    if (isBenignSwitchOrCancellation) {
+      console.warn(`[Wallet Error Suppressed - Benign Switch/User Event]:`, msg || name, error);
       return;
     }
 
